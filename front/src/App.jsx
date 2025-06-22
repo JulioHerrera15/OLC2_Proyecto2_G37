@@ -443,7 +443,7 @@ function App() {
     ],
     reportes: [
       { 
-        label: 'Errores y Warnings', 
+        label: 'Tabla de Errores', 
         icon: Bug, 
         action: handleErrorReport,
         loading: reports.isGeneratingReport
@@ -510,7 +510,7 @@ function App() {
                 transition={{ delay: 0.2, duration: 0.6 }}
               >
                 <h1 className={`${themeClasses.textPrimary} text-base font-bold text-transparent bg-gradient-to-r from-emerald-400 to-cyan-400 bg-clip-text transition-all duration-500`}>
-                  V→ARM64{hasUnsavedChanges ? '*' : ''}
+                  VLang→ARM64{hasUnsavedChanges ? '*' : ''}
                 </h1>
                 <p className={`${themeClasses.textAccent} text-xs transition-all duration-500`}>
                   {currentFile ? `${currentFile}${hasUnsavedChanges ? ' (modificado)' : ''}` : 'Compilador v2.0'}
