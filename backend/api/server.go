@@ -10,7 +10,7 @@ import (
     "path/filepath"
     "strings"
     "time"
-    "compiler/cst"
+    "backend/analyzer/cst"
     "github.com/gorilla/mux"
     "github.com/rs/cors"
 )
@@ -108,25 +108,25 @@ func NewAPIServer() *APIServer {
 // Buscar el ejecutable del compilador
 func (s *APIServer) findCompilerExecutable() {
     possiblePaths := []string{
-        "../compiler/compiler",
-        "./compiler/compiler",
-        "../backend/compiler/compiler",
-        "./backend/compiler/compiler",
-        "../../backend/compiler/compiler",
-        "../compiler",
-        "./compiler",
+        "../analyzer/analyzer",
+        "./analyzer/analyzer",
+        "../backend/analyzer/analyzer",
+        "./backend/analyzer/analyzer",
+        "../../backend/analyzer/analyzer",
+        "../analyzer",
+        "./analyzer",
     }
 
     for _, path := range possiblePaths {
         if _, err := os.Stat(path); err == nil {
             absPath, _ := filepath.Abs(path)
             s.compilerPath = absPath
-            log.Printf("✅ Compilador encontrado en: %s", absPath)
+            log.Printf("✅ Analizador encontrado en: %s", absPath)
             return
         }
     }
 
-    log.Fatal("❌ No se pudo encontrar el ejecutable del compilador")
+    log.Fatal("❌ No se pudo encontrar el ejecutable del analizador")
 }
 
 // Endpoint para ejecutar código (principal)
