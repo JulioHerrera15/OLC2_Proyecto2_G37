@@ -149,6 +149,34 @@ func (s *APIServer) findExecutables() {
     }
 }
 
+// Función helper para mapear símbolos
+func mapSymbols(analyzerSymbols []struct {
+    ID         string `json:"id"`
+    SymbolType string `json:"symbolType"`
+    DataType   string `json:"dataType"`
+    Scope      string `json:"scope"`
+    Line       int    `json:"line"`
+    Column     int    `json:"column"`
+}) []SymbolDetail {
+    var mapped []SymbolDetail
+    for _, symbol := range analyzerSymbols {
+        // Combinar SymbolType y DataType para mostrar información completa
+        typeInfo := symbol.SymbolType
+        if symbol.DataType != "" && symbol.DataType != symbol.SymbolType {
+            typeInfo = symbol.SymbolType + " (" + symbol.DataType + ")"
+        }
+        
+        mapped = append(mapped, SymbolDetail{
+            Name:   symbol.ID,
+            Type:   typeInfo,
+            Scope:  symbol.Scope,
+            Line:   symbol.Line,
+            Column: symbol.Column,
+        })
+    }
+    return mapped
+}
+
 // Endpoint para ejecutar código (principal)
 func (s *APIServer) executeCode(w http.ResponseWriter, r *http.Request) {
     var req ExecuteRequest
@@ -180,12 +208,19 @@ func (s *APIServer) executeCode(w http.ResponseWriter, r *http.Request) {
         analyzerOutputStr = after
     }
     
-    // Parsear resultado del analyzer
+    // ✅ Parsear resultado del analyzer con la estructura correcta del analyzer
     var analyzerResult struct {
         Success bool          `json:"success"`
         Output  string        `json:"output"`
         Errors  []ErrorDetail `json:"errors"`
-        Symbols []SymbolDetail `json:"symbols"`
+        Symbols []struct {
+            ID         string `json:"id"`         // ← Campos como los devuelve el analyzer
+            SymbolType string `json:"symbolType"`
+            DataType   string `json:"dataType"`
+            Scope      string `json:"scope"`
+            Line       int    `json:"line"`
+            Column     int    `json:"column"`
+        } `json:"symbols"`
         Stats   struct {
             ExecutionTime int64 `json:"executionTime"`
             CodeSize      int   `json:"codeSize"`
@@ -201,15 +236,18 @@ func (s *APIServer) executeCode(w http.ResponseWriter, r *http.Request) {
         return
     }
     
-    // 2. ✅ SI HAY ERRORES: No compilar, solo devolver errores (MEJORADO)
+    // ✅ Mapear símbolos del formato analyzer al formato frontend
+    mappedSymbols := mapSymbols(analyzerResult.Symbols)
+    
+    // 2. ✅ SI HAY ERRORES: No compilar, solo devolver errores
     if !analyzerResult.Success || len(analyzerResult.Errors) > 0 {
         log.Printf("⚠️ Se encontraron %d errores, no se compilará", len(analyzerResult.Errors))
         
         result := ExecuteResponse{
             Success: false,
             Output:  "Se encontraron errores en el código. Revisa la tabla de errores.",
-            Errors:  analyzerResult.Errors,   // ← Importante: Los errores se pasan
-            Symbols: analyzerResult.Symbols,  // ← Los símbolos también
+            Errors:  analyzerResult.Errors,
+            Symbols: mappedSymbols, // ← Usar símbolos mapeados
             Stats: ExecutionStats{
                 CompileTime: "0ms (no compilado)",
                 Lines:       strings.Count(req.Code, "\n") + 1,
@@ -218,13 +256,12 @@ func (s *APIServer) executeCode(w http.ResponseWriter, r *http.Request) {
             Optimized: false,
         }
         
-        // ✅ Devolver 200 OK (no 500) con los errores
         w.Header().Set("Content-Type", "application/json")
         json.NewEncoder(w).Encode(result)
         return
     }
 
-    // 3. SI NO HAY ERRORES: Ejecutar compilador (resto del código igual)
+    // 3. SI NO HAY ERRORES: Ejecutar compilador
     log.Printf("✅ Análisis exitoso, compilando a ARM64...")
     
     compilerCmd := exec.Command(s.compilerPath)
@@ -252,7 +289,7 @@ func (s *APIServer) executeCode(w http.ResponseWriter, r *http.Request) {
             Success: false,
             Output:  "Compiler execution failed: " + compilerErr.Error(),
             Errors:  analyzerResult.Errors,
-            Symbols: analyzerResult.Symbols,
+            Symbols: mappedSymbols, // ← Usar símbolos mapeados
             Stats: ExecutionStats{
                 CompileTime: "0ms",
                 Lines:       strings.Count(req.Code, "\n") + 1,
@@ -265,7 +302,7 @@ func (s *APIServer) executeCode(w http.ResponseWriter, r *http.Request) {
         return
     }
     
-    // Parsear resultado del compilador (igual que antes)
+    // Parsear resultado del compilador
     var compilerResult struct {
         Success  bool   `json:"success"`
         Assembly string `json:"assembly"`
@@ -287,9 +324,9 @@ func (s *APIServer) executeCode(w http.ResponseWriter, r *http.Request) {
     // 4. Devolver resultado final
     result := ExecuteResponse{
         Success: compilerResult.Success,
-        Output:  compilerResult.Assembly, // Código ARM64 generado
+        Output:  compilerResult.Assembly,
         Errors:  analyzerResult.Errors,
-        Symbols: analyzerResult.Symbols,
+        Symbols: mappedSymbols, // ← Usar símbolos mapeados
         Stats: ExecutionStats{
             CompileTime: compilerResult.Stats.CompileTime,
             Lines:       compilerResult.Stats.Lines,
