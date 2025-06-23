@@ -31,14 +31,20 @@ func ReadFile(filename string) string {
     return string(content)
 }
 
-// ✅ FUNCIÓN PRINCIPAL MEJORADA
 func CstReport(input string) string {
-    // Obtener la ruta del archivo de gramática
+    // Obtener la ruta del archivo de gramática de manera más robusta
     _, filename, _, _ := runtime.Caller(0)
-    path := filepath.Dir(filename)
     
-    // Subir dos niveles: /cst -> /compiler -> /backend
-    path = filepath.Dir(path) // Quita /cst
+    // Buscar hacia arriba hasta encontrar la carpeta backend
+    path := filepath.Dir(filename)
+    for filepath.Base(path) != "backend" && path != "/" {
+        path = filepath.Dir(path)
+    }
+    
+    if filepath.Base(path) != "backend" {
+        fmt.Printf("❌ No se pudo encontrar la carpeta backend desde: %s\n", filename)
+        return ""
+    }
     
     grammarPath := filepath.Join(path, "parser", "Language.g4")
     
@@ -49,6 +55,8 @@ func CstReport(input string) string {
     }
     
     fmt.Fprintf(os.Stderr, "📁 Usando gramática: %s\n", grammarPath)
+    
+    // Resto del código igual...
     
     // Leer la gramática
     grammarContent := ReadFile(grammarPath)

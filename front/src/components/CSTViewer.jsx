@@ -164,7 +164,6 @@ const floatingVariants = {
     y: [-2, 2, -2],
     transition: {
       duration: 2,
-      repeat: Infinity,
       ease: "easeInOut"
     }
   }
