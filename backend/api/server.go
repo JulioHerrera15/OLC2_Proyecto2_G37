@@ -2,7 +2,6 @@ package main
 
 import (
     "encoding/json"
-    "fmt"
     "log"
     "net/http"
     "os"
@@ -13,6 +12,7 @@ import (
     "backend/analyzer/cst"
     "github.com/gorilla/mux"
     "github.com/rs/cors"
+    "bytes"
 )
 
 // Estructuras de request/response para el API
@@ -96,37 +96,57 @@ type CSTResponse struct {
 }
 
 type APIServer struct {
+    analyzerPath string
     compilerPath string
+
 }
 
 func NewAPIServer() *APIServer {
     server := &APIServer{}
-    server.findCompilerExecutable()
+    server.findExecutables()
     return server
 }
 
 // Buscar el ejecutable del compilador
-func (s *APIServer) findCompilerExecutable() {
-    possiblePaths := []string{
+func (s *APIServer) findExecutables() {
+    // Buscar analizador
+    analyzerPaths := []string{
         "../analyzer/analyzer",
         "./analyzer/analyzer",
         "../backend/analyzer/analyzer",
-        "./backend/analyzer/analyzer",
-        "../../backend/analyzer/analyzer",
-        "../analyzer",
-        "./analyzer",
     }
-
-    for _, path := range possiblePaths {
+    
+    for _, path := range analyzerPaths {
+        if _, err := os.Stat(path); err == nil {
+            absPath, _ := filepath.Abs(path)
+            s.analyzerPath = absPath
+            log.Printf("✅ Analizador encontrado: %s", absPath)
+            break
+        }
+    }
+    
+    // Buscar compilador
+    compilerPaths := []string{
+        "../compiler/compiler",
+        "./compiler/compiler",
+        "../backend/compiler/compiler",
+    }
+    
+    for _, path := range compilerPaths {
         if _, err := os.Stat(path); err == nil {
             absPath, _ := filepath.Abs(path)
             s.compilerPath = absPath
-            log.Printf("✅ Analizador encontrado en: %s", absPath)
-            return
+            log.Printf("✅ Compilador encontrado: %s", absPath)
+            break
         }
     }
-
-    log.Fatal("❌ No se pudo encontrar el ejecutable del analizador")
+    
+    if s.analyzerPath == "" {
+        log.Fatal("❌ No se encontró el analizador")
+    }
+    if s.compilerPath == "" {
+        log.Fatal("❌ No se encontró el compilador")
+    }
 }
 
 // Endpoint para ejecutar código (principal)
@@ -137,121 +157,142 @@ func (s *APIServer) executeCode(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    log.Printf("🔄 Ejecutando código (%d caracteres)", len(req.Code))
+    log.Printf("🔄 Analizando código (%d caracteres)", len(req.Code))
 
-    // Ejecutar compilador
-    startTime := time.Now()
-    cmd := exec.Command(s.compilerPath)
-    cmd.Stdin = strings.NewReader(req.Code)
+    // 1. PRIMERO: Ejecutar analyzer para detectar errores
+    analyzerCmd := exec.Command(s.analyzerPath)
+    analyzerCmd.Stdin = strings.NewReader(req.Code)
     
-    output, err := cmd.CombinedOutput()
-    compileTime := time.Since(startTime)
+    analyzerOutput, analyzerErr := analyzerCmd.CombinedOutput()
+    
+    // Verificar si hay error en la ejecución del analyzer
+    if analyzerErr != nil {
+        log.Printf("❌ Error ejecutando analyzer: %v", analyzerErr)
+        http.Error(w, "Error running analyzer: "+analyzerErr.Error(), http.StatusInternalServerError)
+        return
+    }
+    
+    // Limpiar la salida del analyzer (remover prefijo SUCCESS:)
+    analyzerOutputStr := string(analyzerOutput)
+    if after, ok :=strings.CutPrefix(analyzerOutputStr, "SUCCESS:"); ok  {
+        analyzerOutputStr = after
+    }
+    
+    // Parsear resultado del analyzer
+    var analyzerResult struct {
+        Success bool          `json:"success"`
+        Output  string        `json:"output"`         // Agregado
+        Errors  []ErrorDetail `json:"errors"`
+        Symbols []SymbolDetail `json:"symbols"`
+        Stats   struct {                              // Agregado
+            ExecutionTime int64 `json:"executionTime"`
+            CodeSize      int   `json:"codeSize"`
+            ErrorCount    int   `json:"errorCount"`
+            SymbolCount   int   `json:"symbolCount"`
+        } `json:"stats"`
+    }
+    
+    if err := json.Unmarshal([]byte(analyzerOutputStr), &analyzerResult); err != nil {
+        log.Printf("❌ Error parseando salida del analyzer: %v", err)
+        log.Printf("📄 Salida del analyzer (limpia): %s", analyzerOutputStr)
+        http.Error(w, "Error parsing analyzer output: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+    
+    // 2. SI HAY ERRORES: No compilar, solo devolver errores
+    if !analyzerResult.Success || len(analyzerResult.Errors) > 0 {
+        result := ExecuteResponse{
+            Success: false,
+            Output:  "Compilation failed due to errors",
+            Errors:  analyzerResult.Errors,
+            Symbols: analyzerResult.Symbols,
+            Stats: ExecutionStats{
+                CompileTime: "0ms",
+                Lines:       strings.Count(req.Code, "\n") + 1,
+                Size:        "0 bytes",
+            },
+        }
+        
+        w.Header().Set("Content-Type", "application/json")
+        json.NewEncoder(w).Encode(result)
+        return
+    }
 
-    // Parsear resultado
-    result := s.parseCompilerOutput(string(output), err, req.Code, compileTime)
+    // 3. SI NO HAY ERRORES: Ejecutar compilador
+    log.Printf("✅ Análisis exitoso, compilando a ARM64...")
+    
+    compilerCmd := exec.Command(s.compilerPath)
+    compilerCmd.Stdin = strings.NewReader(req.Code)
+    
+    // Separar stdout y stderr
+    var stdout, stderr bytes.Buffer
+    compilerCmd.Stdout = &stdout
+    compilerCmd.Stderr = &stderr
 
-    w.Header().Set("Content-Type", "application/json")
-    json.NewEncoder(w).Encode(result)
-}
+    compilerErr := compilerCmd.Run()
 
-// Parsear salida del compilador
-func (s *APIServer) parseCompilerOutput(output string, execErr error, code string, compileTime time.Duration) ExecuteResponse {
+    // Mostrar debug en logs del servidor
+    if stderr.Len() > 0 {
+        log.Printf("🔍 Debug del compilador:\n%s", stderr.String())
+    }
+
+    // Usar solo stdout para el JSON
+    compilerOutput := stdout.Bytes()
+    
+    // Verificar si hay error en la ejecución del compilador
+    if compilerErr != nil {
+        log.Printf("❌ Error ejecutando compilador: %v", compilerErr)
+        result := ExecuteResponse{
+            Success: false,
+            Output:  "Compiler execution failed: " + compilerErr.Error(),
+            Errors:  analyzerResult.Errors,
+            Symbols: analyzerResult.Symbols,
+            Stats: ExecutionStats{
+                CompileTime: "0ms",
+                Lines:       strings.Count(req.Code, "\n") + 1,
+                Size:        "0 bytes",
+            },
+        }
+        
+        w.Header().Set("Content-Type", "application/json")
+        json.NewEncoder(w).Encode(result)
+        return
+    }
+    
+    // Parsear resultado del compilador (igual que antes)
+    var compilerResult struct {
+        Success  bool   `json:"success"`
+        Assembly string `json:"assembly"`
+        Error    string `json:"error"`
+        Stats    struct {
+            CompileTime string `json:"compileTime"`
+            Lines       int    `json:"lines"`
+            Size        string `json:"size"`
+        } `json:"stats"`
+    }
+    
+    if err := json.Unmarshal(compilerOutput, &compilerResult); err != nil {
+        log.Printf("❌ Error parseando salida del compilador: %v", err)
+        log.Printf("📄 Salida del compilador: %s", string(compilerOutput))
+        http.Error(w, "Error parsing compiler output: "+err.Error(), http.StatusInternalServerError)
+        return
+    }
+    
+    // 4. Devolver resultado final
     result := ExecuteResponse{
-        Success:   false,
-        Output:    "",
-        Errors:    []ErrorDetail{},
-        Symbols:   []SymbolDetail{},
-        Optimized: true,
+        Success: compilerResult.Success,
+        Output:  compilerResult.Assembly, // Código ARM64 generado
+        Errors:  analyzerResult.Errors,
+        Symbols: analyzerResult.Symbols,
         Stats: ExecutionStats{
-            CompileTime: fmt.Sprintf("%dms", compileTime.Milliseconds()),
-            Lines:       len(strings.Split(code, "\n")),
-            Size:        fmt.Sprintf("%.1f KB", float64(len(code))/1024),
+            CompileTime: compilerResult.Stats.CompileTime,
+            Lines:       compilerResult.Stats.Lines,
+            Size:        compilerResult.Stats.Size,
         },
     }
-
-    // Si hay error de ejecución del proceso
-    if execErr != nil {
-        result.Success = false
-        result.Output = output
-        result.Errors = append(result.Errors, ErrorDetail{
-            Type:     "EXECUTION_ERROR",
-            Message:  fmt.Sprintf("Error ejecutando compilador: %v", execErr),
-            Line:     1,
-            Column:   1,
-            Severity: "high",
-        })
-        return result
-    }
-
-    // Parsear según el formato del compilador
-    switch {
-    case strings.HasPrefix(output, "SUCCESS:"):
-        jsonStr := strings.TrimPrefix(output, "SUCCESS:")
-        return s.parseCompilerJSON(jsonStr, result, true)
-        
-    case strings.HasPrefix(output, "ERROR_REPORT:"):
-        jsonStr := strings.TrimPrefix(output, "ERROR_REPORT:")
-        return s.parseCompilerJSON(jsonStr, result, false)
-        
-    default:
-        // Salida no reconocida - mostrar output crudo
-        result.Success = false
-        result.Output = output
-        result.Errors = append(result.Errors, ErrorDetail{
-            Type:     "PARSE_ERROR",
-            Message:  "Formato de salida no reconocido del compilador",
-            Line:     1,
-            Column:   1,
-            Severity: "medium",
-        })
-        return result
-    }
-}
-
-// Parsear JSON del compilador
-func (s *APIServer) parseCompilerJSON(jsonStr string, result ExecuteResponse, _ bool) ExecuteResponse {
-    var compilerResp CompilerResponse
     
-    if err := json.Unmarshal([]byte(jsonStr), &compilerResp); err != nil {
-        result.Success = false
-        result.Output = jsonStr
-        result.Errors = append(result.Errors, ErrorDetail{
-            Type:     "JSON_PARSE_ERROR",
-            Message:  fmt.Sprintf("Error parseando JSON: %v", err),
-            Line:     1,
-            Column:   1,
-            Severity: "high",
-        })
-        return result
-    }
-
-    // Mapear respuesta del compilador a formato del API
-    result.Success = compilerResp.Success
-    result.Output = compilerResp.Output
-
-    // Mapear errores
-    for _, err := range compilerResp.Errors {
-        result.Errors = append(result.Errors, ErrorDetail{
-            Type:     err.Type,
-            Message:  err.Message,
-            Line:     err.Line,
-            Column:   err.Column,
-            Severity: "high",
-        })
-    }
-
-    // Mapear símbolos
-    for _, sym := range compilerResp.Symbols {
-        result.Symbols = append(result.Symbols, SymbolDetail{
-            Name:     sym.ID,
-            Type:     sym.DataType,
-            Scope:    sym.Scope,
-            Line:     sym.Line,
-            Column:   sym.Column,
-        })
-    }
-
-    return result
+    w.Header().Set("Content-Type", "application/json")
+    json.NewEncoder(w).Encode(result)
 }
 
 // Endpoint para generar CST (solo SVG)
@@ -305,7 +346,7 @@ func (s *APIServer) setupRoutes() *mux.Router {
         w.WriteHeader(http.StatusOK)
         json.NewEncoder(w).Encode(map[string]string{
             "status":   "ok",
-            "compiler": s.compilerPath,
+            "analyzer": s.analyzerPath,
             "time":     time.Now().Format(time.RFC3339),
         })
     }).Methods("GET")
