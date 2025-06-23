@@ -172,19 +172,21 @@ func (s *APIServer) executeCode(w http.ResponseWriter, r *http.Request) {
         return
     }
     
-    // Limpiar la salida del analyzer (remover prefijo SUCCESS:)
+    // ✅ Limpiar la salida del analyzer (remover AMBOS prefijos)
     analyzerOutputStr := string(analyzerOutput)
-    if after, ok :=strings.CutPrefix(analyzerOutputStr, "SUCCESS:"); ok  {
+    if after, ok := strings.CutPrefix(analyzerOutputStr, "SUCCESS:"); ok {
+        analyzerOutputStr = after
+    } else if after, ok := strings.CutPrefix(analyzerOutputStr, "ERROR_REPORT:"); ok {
         analyzerOutputStr = after
     }
     
     // Parsear resultado del analyzer
     var analyzerResult struct {
         Success bool          `json:"success"`
-        Output  string        `json:"output"`         // Agregado
+        Output  string        `json:"output"`
         Errors  []ErrorDetail `json:"errors"`
         Symbols []SymbolDetail `json:"symbols"`
-        Stats   struct {                              // Agregado
+        Stats   struct {
             ExecutionTime int64 `json:"executionTime"`
             CodeSize      int   `json:"codeSize"`
             ErrorCount    int   `json:"errorCount"`
@@ -199,26 +201,30 @@ func (s *APIServer) executeCode(w http.ResponseWriter, r *http.Request) {
         return
     }
     
-    // 2. SI HAY ERRORES: No compilar, solo devolver errores
+    // 2. ✅ SI HAY ERRORES: No compilar, solo devolver errores (MEJORADO)
     if !analyzerResult.Success || len(analyzerResult.Errors) > 0 {
+        log.Printf("⚠️ Se encontraron %d errores, no se compilará", len(analyzerResult.Errors))
+        
         result := ExecuteResponse{
             Success: false,
-            Output:  "Compilation failed due to errors",
-            Errors:  analyzerResult.Errors,
-            Symbols: analyzerResult.Symbols,
+            Output:  "Se encontraron errores en el código. Revisa la tabla de errores.",
+            Errors:  analyzerResult.Errors,   // ← Importante: Los errores se pasan
+            Symbols: analyzerResult.Symbols,  // ← Los símbolos también
             Stats: ExecutionStats{
-                CompileTime: "0ms",
+                CompileTime: "0ms (no compilado)",
                 Lines:       strings.Count(req.Code, "\n") + 1,
                 Size:        "0 bytes",
             },
+            Optimized: false,
         }
         
+        // ✅ Devolver 200 OK (no 500) con los errores
         w.Header().Set("Content-Type", "application/json")
         json.NewEncoder(w).Encode(result)
         return
     }
 
-    // 3. SI NO HAY ERRORES: Ejecutar compilador
+    // 3. SI NO HAY ERRORES: Ejecutar compilador (resto del código igual)
     log.Printf("✅ Análisis exitoso, compilando a ARM64...")
     
     compilerCmd := exec.Command(s.compilerPath)
