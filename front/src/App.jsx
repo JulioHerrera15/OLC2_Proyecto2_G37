@@ -17,7 +17,9 @@ import {
   GitBranch,
   Moon,
   Sun,
-  Loader2
+  Loader2,
+  Copy,
+  Check
 } from 'lucide-react'
 
 // Importar los nuevos servicios
@@ -146,7 +148,6 @@ const floatingVariants = {
 }
 
 function App() {
-  // ...existing state...
   const [code, setCode] = useState(`// Escribe tu código Vlang aquí...`);
   const [output, setOutput] = useState('Salida...');
   const [activeMenu, setActiveMenu] = useState(null)
@@ -170,7 +171,9 @@ function App() {
   const [showReport, setShowReport] = useState(false)
   const [reportData, setReportData] = useState(null)
   const [reportType, setReportType] = useState('')
-
+  const [isExecuting, setIsExecuting] = useState(false)
+  const [executionResult, setExecutionResult] = useState(null)
+  const [copied, setCopied] = useState(false)
   const reports = useReports()
   const menuContainerRef = useRef(null)
 
@@ -197,6 +200,90 @@ function App() {
       document.removeEventListener('keydown', handleKeyDown)
     }
   }, [activeMenu])
+
+  // En App.jsx, modificar handleCompileAndRun
+  const handleCompileAndRun = async () => {
+      if (!code.trim() || code === `// Escribe tu código Vlang aquí...`) {
+          setOutput('❌ No hay código para compilar y ejecutar')
+          return
+      }
+
+      setIsExecuting(true)
+      setActiveMenu(null)
+      
+      const startTime = Date.now()
+      let currentOutput = ''
+      
+      try {
+          setOutput('🔄 Conectando con el compilador...\n')
+          
+          const result = await compilerService.compileAndRun(code, (progress) => {
+              // Callback de progreso - actualizar output en tiempo real
+              const timestamp = new Date().toLocaleTimeString()
+              let newLine = ''
+              
+              switch (progress.type) {
+                  case 'info':
+                      newLine = `[${timestamp}] ${progress.content}`
+                      break
+                  case 'step':
+                      newLine = `\n[${timestamp}] ${progress.content}`
+                      break
+                  case 'command':
+                      newLine = `[${timestamp}] ${progress.content}`
+                      break
+                  case 'success':
+                      newLine = `[${timestamp}] ${progress.content}`
+                      break
+                  case 'warning':
+                      newLine = `[${timestamp}] ${progress.content}`
+                      break
+                  case 'error':
+                      newLine = `[${timestamp}] ${progress.content}`
+                      break
+                  case 'output':
+                      newLine = `[${timestamp}] ${progress.content}`
+                      break
+                  case 'program_output':
+                      newLine = `[${timestamp}] ${progress.content}`
+                      break
+                  case 'program_error':
+                      newLine = `[${timestamp}] ${progress.content}`
+                      break
+                  case 'complete':
+                      newLine = `\n[${timestamp}] ${progress.content}`
+                      break
+                  default:
+                      newLine = `[${timestamp}] ${progress.content}`
+              }
+              
+              currentOutput += newLine + '\n'
+              setOutput(currentOutput)
+          })
+          
+          const endTime = Date.now()
+          const totalTime = endTime - startTime
+          
+          // Agregar resumen final
+          currentOutput += `\n═══════════════════════════════════════════════════════════════
+  📊 RESUMEN DE EJECUCIÓN
+  ═══════════════════════════════════════════════════════════════
+  ⏱️ Tiempo total: ${totalTime}ms
+  ${result.executionOutput ? `\nSalida del programa:\n${result.executionOutput}` : ''}
+  ${result.error ? `Error: ${result.error}` : ''}
+  ═══════════════════════════════════════════════════════════════`
+          
+          setOutput(currentOutput)
+          
+      } catch (error) {
+          const endTime = Date.now()
+          const totalTime = endTime - startTime
+          
+          setOutput(currentOutput + `\nError de conexión: ${error.message}\nTiempo: ${totalTime}ms`)
+      } finally {
+          setIsExecuting(false)
+      }
+  }
 
   // Función para manejar CST interactivo
   const handleCSTInteractive = async () => {
@@ -440,6 +527,12 @@ function App() {
     ],
     herramientas: [
       { label: 'Compilar', icon: Cpu, action: handleCompile },
+      { 
+        label: 'Compilar y Ejecutar', 
+        icon: Play, 
+        action: handleCompileAndRun,
+        loading: isExecuting
+      },
     ],
     reportes: [
       { 
@@ -461,6 +554,32 @@ function App() {
         loading: reports.isGeneratingReport
       }
     ]
+  }
+
+  const handleCopyOutput = async () => {
+    try {
+      await navigator.clipboard.writeText(output)
+      setCopied(true)
+      
+      // Ocultar notificación después de 2 segundos
+      setTimeout(() => {
+        setCopied(false)
+      }, 2000)
+    } catch (error) {
+      console.error('Error copiando al portapapeles:', error)
+      // Fallback para navegadores que no soportan navigator.clipboard
+      const textArea = document.createElement('textarea')
+      textArea.value = output
+      document.body.appendChild(textArea)
+      textArea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textArea)
+      
+      setCopied(true)
+      setTimeout(() => {
+        setCopied(false)
+      }, 2000)
+    }
   }
 
   return (
@@ -757,6 +876,36 @@ function App() {
                   </>
                 )}
               </motion.button>
+              <motion.button 
+                onClick={handleCompileAndRun}
+                disabled={isExecuting || isCompiling}
+                className={`
+                  flex items-center gap-2 px-6 py-2.5 rounded-xl font-semibold transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed
+                  backdrop-blur-md shadow-lg
+                  bg-gradient-to-r from-blue-500/80 to-purple-500/80 text-white border-blue-400/30
+                  hover:from-blue-500 hover:to-purple-500 hover:shadow-xl hover:shadow-blue-500/20
+                  before:absolute before:inset-0 before:bg-gradient-to-r 
+                  before:from-transparent before:via-white/10 before:to-transparent
+                  before:translate-x-[-100%] hover:before:translate-x-[100%]
+                  before:transition-transform before:duration-1000
+                  relative overflow-hidden before:rounded-xl
+                `}
+                variants={buttonHoverVariants}
+                whileHover="hover"
+                whileTap="tap"
+              >
+                {isExecuting ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin relative z-10"></div>
+                    <span className="relative z-10">Ejecutando...</span>
+                  </>
+                ) : (
+                  <>
+                    <Play className="w-4 h-4 relative z-10" />
+                    <span className="relative z-10">Compilar y Ejecutar</span>
+                  </>
+                )}
+              </motion.button>
             </div>
           </motion.div>
           <div className="flex-1 relative">
@@ -947,6 +1096,75 @@ function App() {
                 <span className={`${themeClasses.textSecondary} text-xs font-medium`}>ARM64</span>
               </motion.div>
               <motion.button 
+                onClick={handleCopyOutput}
+                disabled={!output || output === 'Salida...'}
+                className={`
+                  relative flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium 
+                  transition-all duration-300 overflow-hidden
+                  backdrop-blur-md border shadow-lg
+                  ${!output || output === 'Salida...' 
+                    ? // Estado DESHABILITADO
+                      (isDarkMode 
+                        ? 'bg-gray-800/30 border-gray-700/20 text-gray-600 cursor-not-allowed' 
+                        : 'bg-slate-200/30 border-slate-300/20 text-slate-400 cursor-not-allowed'
+                      )
+                    : copied 
+                      ? // Estado COPIADO (verde)
+                        (isDarkMode
+                          ? 'bg-green-500/20 border-green-500/40 text-green-400 hover:bg-green-500/30 hover:shadow-green-500/20'
+                          : 'bg-green-400/20 border-green-400/40 text-green-600 hover:bg-green-400/30 hover:shadow-green-400/20'
+                        )
+                      : // Estado NORMAL (cyan/azul)
+                        (isDarkMode 
+                          ? 'bg-slate-700/50 border-slate-600/30 text-slate-200 hover:bg-slate-600/60 hover:border-cyan-500/40 hover:text-cyan-300 hover:shadow-cyan-500/20' 
+                          : 'bg-slate-100/60 border-slate-300/40 text-slate-700 hover:bg-slate-200/70 hover:border-cyan-400/50 hover:text-cyan-600 hover:shadow-cyan-400/20'
+                        )
+                  }
+                  ${!output || output === 'Salida...' 
+                    ? '' // Sin efectos hover cuando está deshabilitado
+                    : `
+                      before:absolute before:inset-0 before:bg-gradient-to-r 
+                      before:from-transparent before:via-white/10 before:to-transparent
+                      before:translate-x-[-100%] hover:before:translate-x-[100%]
+                      before:transition-transform before:duration-1000
+                      backdrop-saturate-150 backdrop-brightness-110
+                      hover:backdrop-blur-lg hover:backdrop-saturate-200
+                      shadow-lg hover:shadow-xl
+                      border-2
+                    `
+                  }
+                `}
+                variants={!output || output === 'Salida...' ? {} : buttonHoverVariants}
+                whileHover={!output || output === 'Salida...' ? {} : "hover"}
+                whileTap={!output || output === 'Salida...' ? {} : "tap"}
+              >
+                <AnimatePresence mode="wait">
+                  {copied ? (
+                    <motion.div
+                      key="check"
+                      initial={{ scale: 0, rotate: -180 }}
+                      animate={{ scale: 1, rotate: 0 }}
+                      exit={{ scale: 0, rotate: 180 }}
+                      transition={{ duration: 0.2 }}
+                      className="flex items-center gap-2"
+                    >
+                      <Check className="w-3 h-3 relative z-10" />
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="copy"
+                      initial={{ scale: 0 }}
+                      animate={{ scale: 1 }}
+                      exit={{ scale: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="flex items-center gap-2"
+                    >
+                      <Copy className="w-3 h-3 relative z-10" />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </motion.button>
+              <motion.button 
                 className={`
                   flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-medium 
                   transition-all duration-300
@@ -1124,7 +1342,33 @@ function App() {
           </motion.div>
         )}
       </AnimatePresence>
-
+      <AnimatePresence>
+        {isExecuting && (
+          <motion.div 
+            className="absolute inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+          >
+            <motion.div 
+              className={`${isDarkMode ? 'bg-black/90' : 'bg-white/90'} backdrop-blur-2xl rounded-3xl border border-blue-500/30 p-8 shadow-2xl`}
+              initial={{ scale: 0.8, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.8, opacity: 0 }}
+              transition={{ type: "spring", stiffness: 200, damping: 20 }}
+            >
+              <div className="flex items-center gap-4">
+                <div className="w-8 h-8 border-4 border-blue-500/30 border-t-blue-400 rounded-full animate-spin"></div>
+                <div>
+                  <h3 className={`${themeClasses.textPrimary} font-bold text-lg`}>Compilando y Ejecutando...</h3>
+                  <p className={`${themeClasses.textAccent} text-sm`}>Ensamblando → Enlazando → Ejecutando con QEMU</p>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       <AnimatePresence>
         {reports.isGeneratingReport && (
           <motion.div 

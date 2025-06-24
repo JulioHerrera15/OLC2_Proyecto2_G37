@@ -8,11 +8,13 @@ import (
     "os/exec"
     "path/filepath"
     "strings"
-    "time"
     "backend/analyzer/cst"
     "github.com/gorilla/mux"
     "github.com/rs/cors"
     "bytes"
+    "fmt"
+    "bufio"
+    "time"
 )
 
 // Estructuras de request/response para el API
@@ -99,6 +101,19 @@ type APIServer struct {
     analyzerPath string
     compilerPath string
 
+}
+
+type CompileAndRunRequest struct {
+    Code string `json:"code"`
+}
+
+type CompileAndRunResponse struct {
+    Success         bool   `json:"success"`
+    CompilationLog  string `json:"compilationLog"`
+    ExecutionOutput string `json:"executionOutput"`
+    ExecutionError  string `json:"executionError,omitempty"`
+    Assembly        string `json:"assembly,omitempty"`
+    Error           string `json:"error,omitempty"`
 }
 
 func NewAPIServer() *APIServer {
@@ -376,25 +391,257 @@ func (s *APIServer) generateCST(w http.ResponseWriter, r *http.Request) {
     json.NewEncoder(w).Encode(response)
 }
 
-// Configurar rutas (simplificado)
+// Agregar la ruta en setupRoutes()
 func (s *APIServer) setupRoutes() *mux.Router {
     r := mux.NewRouter()
     
     // Endpoints principales
     r.HandleFunc("/execute", s.executeCode).Methods("POST")
     r.HandleFunc("/cst", s.generateCST).Methods("POST")
+    r.HandleFunc("/compile-and-run", s.compileAndRun).Methods("POST") // ← Nueva ruta
     
     // Health check
     r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
         w.WriteHeader(http.StatusOK)
-        json.NewEncoder(w).Encode(map[string]string{
-            "status":   "ok",
-            "analyzer": s.analyzerPath,
-            "time":     time.Now().Format(time.RFC3339),
-        })
+        w.Write([]byte("OK"))
     }).Methods("GET")
     
     return r
+}
+
+func (s *APIServer) compileAndRun(w http.ResponseWriter, r *http.Request) {
+    var req CompileAndRunRequest
+    if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+        http.Error(w, "Invalid JSON", http.StatusBadRequest)
+        return
+    }
+
+    if req.Code == "" {
+        http.Error(w, "Code is required", http.StatusBadRequest)
+        return
+    }
+
+    log.Printf("🚀 Compilando y ejecutando código (%d caracteres)", len(req.Code))
+
+    // Configurar headers para Server-Sent Events (streaming)
+    w.Header().Set("Content-Type", "text/event-stream")
+    w.Header().Set("Cache-Control", "no-cache")
+    w.Header().Set("Connection", "keep-alive")
+    w.Header().Set("Access-Control-Allow-Origin", "*")
+
+    // Función helper para enviar mensajes de streaming
+    sendMessage := func(msgType, content string) {
+        fmt.Fprintf(w, "data: {\"type\":\"%s\",\"content\":%q}\n\n", msgType, content)
+        if flusher, ok := w.(http.Flusher); ok {
+            flusher.Flush()
+        }
+    }
+
+    sendMessage("info", "-- Iniciando compilación y ejecución...")
+    time.Sleep(500 * time.Millisecond) // Pausa para efecto visual
+
+    // 1. Compilar código Vlang a ARM64
+    sendMessage("step", "- Paso 1: Compilando código Vlang a ARM64...")
+    time.Sleep(300 * time.Millisecond)
+
+    compilerCmd := exec.Command(s.compilerPath)
+    compilerCmd.Stdin = strings.NewReader(req.Code)
+    
+    var stdout, stderr bytes.Buffer
+    compilerCmd.Stdout = &stdout
+    compilerCmd.Stderr = &stderr
+
+    compilerErr := compilerCmd.Run()
+
+    if compilerErr != nil {
+        sendMessage("error", fmt.Sprintf("❌ Error compilando código: %v\n%s", compilerErr, stderr.String()))
+        return
+    }
+
+    sendMessage("success", "Código Vlang compilado exitosamente")
+    time.Sleep(200 * time.Millisecond)
+
+    // 2. Parsear resultado
+    var compilerResult struct {
+        Success  bool   `json:"success"`
+        Assembly string `json:"assembly"`
+        Error    string `json:"error"`
+    }
+
+    if err := json.Unmarshal(stdout.Bytes(), &compilerResult); err != nil {
+        sendMessage("error", fmt.Sprintf("❌ Error parseando salida del compilador: %v", err))
+        return
+    }
+
+    if !compilerResult.Success {
+        sendMessage("error", fmt.Sprintf("❌ Error en la compilación: %s", compilerResult.Error))
+        return
+    }
+
+    // 3. Crear directorio temporal
+    sendMessage("step", "- Paso 2: Creando directorio temporal...")
+    tempDir, err := os.MkdirTemp("", "vlang_compile_*")
+    if err != nil {
+        sendMessage("error", fmt.Sprintf("❌ Error creando directorio temporal: %v", err))
+        return
+    }
+    defer os.RemoveAll(tempDir)
+
+    sendMessage("info", fmt.Sprintf("Directorio temporal: %s", tempDir))
+    time.Sleep(200 * time.Millisecond)
+
+    // 4. Guardar archivo .s
+    sendMessage("step", "- Paso 3: Guardando código ARM64 en program.s...")
+    asmFile := filepath.Join(tempDir, "program.s")
+    if err := os.WriteFile(asmFile, []byte(compilerResult.Assembly), 0644); err != nil {
+        sendMessage("error", fmt.Sprintf("❌ Error guardando archivo .s: %v", err))
+        return
+    }
+
+    sendMessage("success", "Archivo program.s creado")
+    time.Sleep(200 * time.Millisecond)
+
+    // 5. Buscar script build.sh
+    sendMessage("step", "- Paso 4: Buscando script build.sh...")
+    buildScriptPaths := []string{
+        "../assembler/build.sh",
+        "./assembler/build.sh", 
+        "../backend/assembler/build.sh",
+        "./backend/assembler/build.sh",
+    }
+    
+    var buildScriptPath string
+    for _, path := range buildScriptPaths {
+        if _, err := os.Stat(path); err == nil {
+            absPath, _ := filepath.Abs(path)
+            buildScriptPath = absPath
+            break
+        }
+    }
+    
+    if buildScriptPath == "" {
+        sendMessage("error", "Script build.sh no encontrado")
+        return
+    }
+
+    sendMessage("success", fmt.Sprintf("Script encontrado: %s", buildScriptPath))
+    time.Sleep(300 * time.Millisecond)
+
+    // 6. Ejecutar ensamblado (simulando comandos paso a paso)
+    sendMessage("step", "- Paso 5: Ejecutando ensamblado...")
+    sendMessage("command", fmt.Sprintf("$ bash %s %s", filepath.Base(buildScriptPath), "program.s"))
+    time.Sleep(500 * time.Millisecond)
+
+    // Ejecutar el comando de ensamblado
+    buildCmd := exec.Command("bash", buildScriptPath, asmFile)
+    buildCmd.Dir = tempDir
+
+    // Capturar salida línea por línea para streaming
+    buildStdout, _ := buildCmd.StdoutPipe()
+    buildStderr, _ := buildCmd.StderrPipe()
+
+    if err := buildCmd.Start(); err != nil {
+        sendMessage("error", fmt.Sprintf("Error iniciando build.sh: %v", err))
+        return
+    }
+
+    // Leer stdout en tiempo real
+    go func() {
+        scanner := bufio.NewScanner(buildStdout)
+        for scanner.Scan() {
+            line := scanner.Text()
+            if strings.Contains(line, "aarch64-linux-gnu-as") {
+                sendMessage("command", "$ aarch64-linux-gnu-as -mcpu=cortex-a57 program.s -o program.o")
+                time.Sleep(800 * time.Millisecond)
+                sendMessage("success", "Ensamblado completado")
+            } else if strings.Contains(line, "aarch64-linux-gnu-ld") {
+                sendMessage("command", "$ aarch64-linux-gnu-ld program.o -o program")
+                time.Sleep(600 * time.Millisecond)
+                sendMessage("success", "Enlazado completado")
+            } else if line != "" {
+                sendMessage("output", line)
+            }
+        }
+    }()
+
+    // Leer stderr en tiempo real
+    go func() {
+        scanner := bufio.NewScanner(buildStderr)
+        for scanner.Scan() {
+            line := scanner.Text()
+            if line != "" {
+                sendMessage("warning", line)
+            }
+        }
+    }()
+
+    // Esperar a que termine el comando
+    if err := buildCmd.Wait(); err != nil {
+        sendMessage("error", fmt.Sprintf("❌ Error ejecutando build.sh: %v", err))
+        return
+    }
+
+    time.Sleep(300 * time.Millisecond)
+
+    // 7. Verificar ejecutable
+    sendMessage("step", "- Paso 6: Verificando ejecutable generado...")
+    exeFile := filepath.Join(tempDir, "program")
+    if _, err := os.Stat(exeFile); err != nil {
+        sendMessage("error", "❌ El ejecutable no fue generado correctamente")
+        return
+    }
+
+    sendMessage("success", "Ejecutable 'program' generado exitosamente")
+    time.Sleep(400 * time.Millisecond)
+
+    // 8. Ejecutar con QEMU
+    sendMessage("step", "- Paso 7: Ejecutando con QEMU...")
+    sendMessage("command", "$ qemu-aarch64 ./program")
+    time.Sleep(700 * time.Millisecond)
+
+    qemuCmd := exec.Command("qemu-aarch64", exeFile)
+    qemuCmd.Dir = tempDir
+    
+    // Capturar salida de QEMU en tiempo real
+    qemuStdout, _ := qemuCmd.StdoutPipe()
+    qemuStderr, _ := qemuCmd.StderrPipe()
+
+    if err := qemuCmd.Start(); err != nil {
+        sendMessage("error", fmt.Sprintf("❌ Error iniciando QEMU: %v", err))
+        return
+    }
+
+    // Leer salida del programa
+    go func() {
+        scanner := bufio.NewScanner(qemuStdout)
+        for scanner.Scan() {
+            line := scanner.Text()
+            sendMessage("program_output", line)
+        }
+    }()
+
+    go func() {
+        scanner := bufio.NewScanner(qemuStderr)
+        for scanner.Scan() {
+            line := scanner.Text()
+            sendMessage("program_error", line)
+        }
+    }()
+
+    qemuErr := qemuCmd.Wait()
+
+    time.Sleep(200 * time.Millisecond)
+
+    if qemuErr != nil {
+        sendMessage("warning", fmt.Sprintf("Programa terminó con código: %v", qemuErr))
+    } else {
+        sendMessage("success", "Programa ejecutado exitosamente")
+    }
+
+    time.Sleep(300 * time.Millisecond)
+    sendMessage("complete", "Compilación y ejecución completada")
+
+    log.Printf("Ejecución completada para %d caracteres de código", len(req.Code))
 }
 
 func main() {

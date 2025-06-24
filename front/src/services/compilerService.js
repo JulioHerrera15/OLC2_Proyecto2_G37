@@ -67,6 +67,94 @@ class CompilerService {
     }
   }
 
+  // En compilerService.js, modificar compileAndRun
+  async compileAndRun(code, onProgress) {
+      if (code.length > 50 * 1024) {
+          console.warn('Código muy grande, puede tardar...');
+      }
+
+      await this.acquireSemaphore();
+      
+      try {
+          console.log('🚀 Iniciando compilación y ejecución ARM64 en streaming...');
+          
+          const response = await fetch(`${this.baseURL}/compile-and-run`, {
+              method: 'POST',
+              headers: {
+                  'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ code }),
+          });
+
+          if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          let isComplete = false;
+          let finalResult = {
+              success: false,
+              compilationLog: '',
+              executionOutput: '',
+              assembly: '',
+              error: null
+          };
+
+          while (!isComplete) {
+              const { done, value } = await reader.read();
+              
+              if (done) break;
+              
+              buffer += decoder.decode(value, { stream: true });
+              
+              // Procesar mensajes línea por línea
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || ''; // Guardar línea incompleta
+              
+              for (const line of lines) {
+                  if (line.startsWith('data: ')) {
+                      try {
+                          const data = JSON.parse(line.substring(6));
+                          
+                          // Callback de progreso para actualizar UI
+                          if (onProgress) {
+                              onProgress(data);
+                          }
+                          
+                          // Acumular información para resultado final
+                          switch (data.type) {
+                              case 'complete':
+                                  isComplete = true;
+                                  finalResult.success = true;
+                                  break;
+                              case 'error':
+                                  finalResult.error = data.content;
+                                  finalResult.success = false;
+                                  break;
+                              case 'program_output':
+                                  finalResult.executionOutput += data.content + '\n';
+                                  break;
+                              default:
+                                  finalResult.compilationLog += data.content + '\n';
+                          }
+                      } catch (e) {
+                          console.warn('Error parsing SSE message:', line);
+                      }
+                  }
+              }
+          }
+          
+          return finalResult;
+      } catch (error) {
+          console.error('Error en compilación streaming:', error);
+          throw error;
+      } finally {
+          this.releaseSemaphore();
+      }
+  }
+
   // Generar reporte de errores
   async generateErrorReport(code) {
     const cacheKey = `errors_${this.generateCodeHash(code)}`;
