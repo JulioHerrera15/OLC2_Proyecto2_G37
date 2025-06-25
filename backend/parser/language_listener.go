@@ -1,6 +1,6 @@
 // Code generated from parser/Language.g4 by ANTLR 4.13.2. DO NOT EDIT.
 
-package interpreter // Language
+package parser // Language
 import "github.com/antlr4-go/antlr/v4"
 
 // LanguageListener is a complete listener for a parse tree produced by LanguageParser.

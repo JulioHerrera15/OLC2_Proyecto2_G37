@@ -84,16 +84,16 @@ typeOfStatement: 'typeOf' '(' expressionStatement ')';
 printStatement: 'print' '(' ( expressionStatement ( ',' expressionStatement )* )? ')'
 ;
 
-variableDeclaration: ('mut')? ID ( TYPE | ID) ( '=' expressionStatement )?      # ExplicitDeclaration
-                   | ('mut')? ID '[]' TYPE ( '=' ( sliceElements | expressionStatement ) )?    # ExplicitSliceDeclaration
-                   | ('mut')? ID '[][]' TYPE ( '=' matrixElements )?    # ExplicitMatrixDeclaration
-                   | ('mut')? ID ID ( '=' '{' structInitialization? '}' )?             # ExplicitStructDeclaration
+variableDeclaration: ('mut')? ID TYPE  ( '=' expressionStatement )?                             # ExplicitDeclaration
+                   | ('mut')? ID '[]' TYPE ( '=' ( sliceElements | expressionStatement ) )?     # ExplicitSliceDeclaration
+                   | ('mut')? ID '[][]' TYPE ( '=' matrixElements )?                            # ExplicitMatrixDeclaration
+                   | ('mut')? ID ID ( '=' '{' structInitialization? '}' )?                      # ExplicitStructDeclaration
                    
                    // MOVER LAS ESPECÍFICAS ANTES DE LAS GENERALES:
-                   | ('mut')? ID ':=' ID '{' structInitialization? '}'                 # ImplicitStructDeclaration
-                   | ('mut')? ID ':=' '[]' TYPE sliceElements            # ImplicitSliceDeclaration
-                   | ('mut')? ID ':=' '[][]' TYPE matrixElements         # ImplicitMatrixDeclaration
-                   | ('mut')? ID ':=' expressionStatement               # ImplicitDeclaration
+                   | ('mut')? ID ':=' ID '{' structInitialization? '}'                          # ImplicitStructDeclaration
+                   | ('mut')? ID ':=' '[]' TYPE sliceElements                                   # ImplicitSliceDeclaration
+                   | ('mut')? ID ':=' '[][]' TYPE matrixElements                                # ImplicitMatrixDeclaration
+                   | ('mut')? ID ':=' expressionStatement                                       # ImplicitDeclaration
 ;
 
 sliceElements: '{' ( expressionStatement ( ',' expressionStatement )* )? '}';

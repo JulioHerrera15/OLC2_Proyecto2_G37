@@ -1,4 +1,4 @@
-// Generated from /home/hp/Documentos/Proyecto2/backend/parser/Language.g4 by ANTLR 4.13.1
+// Generated from /home/xavi-13/Escritorio/OLC2_Proyecto2_G37/backend/parser/Language.g4 by ANTLR 4.13.1
 import org.antlr.v4.runtime.atn.*;
 import org.antlr.v4.runtime.dfa.DFA;
 import org.antlr.v4.runtime.*;
@@ -1927,10 +1927,7 @@ public class LanguageParser extends Parser {
 	}
 	@SuppressWarnings("CheckReturnValue")
 	public static class ExplicitDeclarationContext extends VariableDeclarationContext {
-		public List<TerminalNode> ID() { return getTokens(LanguageParser.ID); }
-		public TerminalNode ID(int i) {
-			return getToken(LanguageParser.ID, i);
-		}
+		public TerminalNode ID() { return getToken(LanguageParser.ID, 0); }
 		public TerminalNode TYPE() { return getToken(LanguageParser.TYPE, 0); }
 		public ExpressionStatementContext expressionStatement() {
 			return getRuleContext(ExpressionStatementContext.class,0);
@@ -1972,15 +1969,7 @@ public class LanguageParser extends Parser {
 				setState(308);
 				match(ID);
 				setState(309);
-				_la = _input.LA(1);
-				if ( !(_la==TYPE || _la==ID) ) {
-				_errHandler.recoverInline(this);
-				}
-				else {
-					if ( _input.LA(1)==Token.EOF ) matchedEOF = true;
-					_errHandler.reportMatch(this);
-					consume();
-				}
+				match(TYPE);
 				setState(312);
 				_errHandler.sync(this);
 				_la = _input.LA(1);
@@ -3066,9 +3055,9 @@ public class LanguageParser extends Parser {
 		"\u012f\u0001\u0000\u0000\u0000\u012f\u0130\u0005\u0013\u0000\u0000\u0130"+
 		"\u001d\u0001\u0000\u0000\u0000\u0131\u0133\u0005-\u0000\u0000\u0132\u0131"+
 		"\u0001\u0000\u0000\u0000\u0132\u0133\u0001\u0000\u0000\u0000\u0133\u0134"+
-		"\u0001\u0000\u0000\u0000\u0134\u0135\u00059\u0000\u0000\u0135\u0138\u0007"+
-		"\u0007\u0000\u0000\u0136\u0137\u0005\u0017\u0000\u0000\u0137\u0139\u0003"+
-		"\b\u0004\u0000\u0138\u0136\u0001\u0000\u0000\u0000\u0138\u0139\u0001\u0000"+
+		"\u0001\u0000\u0000\u0000\u0134\u0135\u00059\u0000\u0000\u0135\u0138\u0005"+
+		"4\u0000\u0000\u0136\u0137\u0005\u0017\u0000\u0000\u0137\u0139\u0003\b"+
+		"\u0004\u0000\u0138\u0136\u0001\u0000\u0000\u0000\u0138\u0139\u0001\u0000"+
 		"\u0000\u0000\u0139\u0180\u0001\u0000\u0000\u0000\u013a\u013c\u0005-\u0000"+
 		"\u0000\u013b\u013a\u0001\u0000\u0000\u0000\u013b\u013c\u0001\u0000\u0000"+
 		"\u0000\u013c\u013d\u0001\u0000\u0000\u0000\u013d\u013e\u00059\u0000\u0000"+
