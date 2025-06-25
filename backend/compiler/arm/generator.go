@@ -71,6 +71,8 @@ func PushConstant(value int, objType StackObject) {
     PushObject(objType)
 }
 
+
+
 func PopObject(rd string) StackObject {
     var obj = stack[len(stack)-1]
     stack = stack[:len(stack)-1] // Eliminar el último objeto del stack
@@ -137,7 +139,12 @@ func GetObject(id string) (int, StackObject) {
         if stack[i].Id != nil && *stack[i].Id == id {
             return byteOffset, stack[i] // Retornar el índice y el objeto si encontramos el ID
         }
+
+        byteOffset += stack[i].Length // Sumar el tamaño del objeto al byteOffset
     }
+
+    // Posiblemente sea necesario corregir para que en vez de hacer un retorno, se arroje una excepción
+    // como se hace en la grabacion del 10/4 en el minuto 42:00
     return -1, StackObject{} // Retornar -1 y un objeto vacío si no se encuentra
 }
 
