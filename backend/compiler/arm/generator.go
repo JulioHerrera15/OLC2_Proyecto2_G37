@@ -9,53 +9,86 @@ import (
 var instructions = []string{}
 
 func Add(rd string, rs1 string, rs2 string) {
-	instructions = append(instructions, fmt.Sprintf("ADD %s, %s, %s", rd, rs1, rs2))
+	instructions = append(instructions, fmt.Sprintf("add %s, %s, %s", rd, rs1, rs2))
 }
 
 func Sub(rd string, rs1 string, rs2 string) {
-	instructions = append(instructions, fmt.Sprintf("SUB %s, %s, %s", rd, rs1, rs2))
+	instructions = append(instructions, fmt.Sprintf("sub %s, %s, %s", rd, rs1, rs2))
 }
 
 func Mul(rd string, rs1 string, rs2 string) {
-	instructions = append(instructions, fmt.Sprintf("MUL %s, %s, %s", rd, rs1, rs2))
+	instructions = append(instructions, fmt.Sprintf("mul %s, %s, %s", rd, rs1, rs2))
 }
 
-func Div(rd string, rs1 string, rs2 string) {
-	instructions = append(instructions, fmt.Sprintf("DIV %s, %s, %s", rd, rs1, rs2))
+func SDiv(rd string, rs1 string, rs2 string) {
+	instructions = append(instructions, fmt.Sprintf("sdiv %s, %s, %s", rd, rs1, rs2))
+}
+
+func UDiv(rd string, rs1 string, rs2 string) {
+    instructions = append(instructions, fmt.Sprintf("udiv %s, %s, %s", rd, rs1, rs2))
 }
 
 func Addi(rd string, rs1 string, imm int) {
-	instructions = append(instructions, fmt.Sprintf("ADDI %s, %s, #%d", rd, rs1, imm))
+	instructions = append(instructions, fmt.Sprintf("addi %s, %s, #%d", rd, rs1, imm))
+}
+
+func Subi(rd string, rs1 string, imm int) {
+    instructions = append(instructions, fmt.Sprintf("subi %s, %s, #%d", rd, rs1, imm))
+}
+
+func Neg(rd string, rs string) {
+    instructions = append(instructions, fmt.Sprintf("neg %s, %s", rd, rs))
+}
+
+// Logical operations
+func And(rd string, rs1 string, rs2 string) {
+    instructions = append(instructions, fmt.Sprintf("and %s, %s, %s", rd, rs1, rs2))
+}
+func Orr(rd string, rs1 string, rs2 string) {
+    instructions = append(instructions, fmt.Sprintf("orr %s, %s, %s", rd, rs1, rs2))
+}
+
+// Comparison operations
+func Cmp(rs1 string, rs2 string) {
+    instructions = append(instructions, fmt.Sprintf("cmp %s, %s", rs1, rs2))
+}
+
+func CmpImm(rs string, imm int) {
+    instructions = append(instructions, fmt.Sprintf("cmp %s, #%d", rs, imm))
+}
+
+func Cset(rd string, condition string) {
+    instructions = append(instructions, fmt.Sprintf("cset %s, %s", rd, condition))
 }
 
 // Memory operations
 
 func Str(rs1 string, rs2 string, offset int) {
-	instructions = append(instructions, fmt.Sprintf("STR %s, [%s, #%d]", rs1, rs2, offset))
+	instructions = append(instructions, fmt.Sprintf("str %s, [%s, #%d]", rs1, rs2, offset))
 }
 
 func Ldr(rd string, rs1 string, offset int) {
-	instructions = append(instructions, fmt.Sprintf("LDR %s, [%s, #%d]", rd, rs1, offset))
+	instructions = append(instructions, fmt.Sprintf("ldr %s, [%s, #%d]", rd, rs1, offset))
 }
 
 func Mov(rd string, imm int) {
-	instructions = append(instructions, fmt.Sprintf("MOV %s, #%d", rd, imm))
+	instructions = append(instructions, fmt.Sprintf("mov %s, #%d", rd, imm))
 }
 
 func MovReg(rd string, rs string) {
-    instructions = append(instructions, fmt.Sprintf("MOV %s, %s", rd, rs))
+    instructions = append(instructions, fmt.Sprintf("mov %s, %s", rd, rs))
 }
 
 func Push(rs string) {
-    instructions = append(instructions, fmt.Sprintf("STR %s, [SP, #-8]!", rs))
+    instructions = append(instructions, fmt.Sprintf("str %s, [sp, #-8]!", rs))
 }
 
 func Pop(rd string) {
-	instructions = append(instructions, fmt.Sprintf("LDR %s, [SP], #8", rd))
+	instructions = append(instructions, fmt.Sprintf("ldr %s, [sp], #8", rd))
 }
 
 func Svc() {
-	instructions = append(instructions, "SVC #0")
+	instructions = append(instructions, "svc #0")
 }
 
 func EndProgram() {
@@ -71,7 +104,7 @@ func PrintInt(rs string) {
     }
     
     // Llamar a la función print_integer
-    instructions = append(instructions, "BL print_integer")
+    instructions = append(instructions, "bl print_integer")
     
     // Marcar que usamos esta función estándar
     Use("print_integer")
