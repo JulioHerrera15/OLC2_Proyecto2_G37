@@ -67,9 +67,6 @@ func (v *Visitor) VisitInteger(ctx *parser.IntegerContext) interface{} {
     var value = ctx.GetText()
     intValue, _ := strconv.Atoi(value)
     
-    log.Printf("=== INTEGER DEBUG ===")
-    log.Printf("Value: %s (%d)", value, intValue)
-    
     c.Comment("Constant: " + value)
     c.Mov(c.X0, intValue)
     c.Push(c.X0)
@@ -79,11 +76,6 @@ func (v *Visitor) VisitInteger(ctx *parser.IntegerContext) interface{} {
 
 func (v *Visitor) VisitAddSub(ctx *parser.AddSubContext) interface{} {
     var op = ctx.GetChild(1).(*antlr.TerminalNodeImpl).GetText()
-    
-    log.Printf("=== ADDSUB DEBUG ===")
-    log.Printf("Left: '%s'", ctx.GetChild(0).(antlr.ParseTree).GetText())      // ✅ Cast to ParseTree
-    log.Printf("Operator: '%s'", op)
-    log.Printf("Right: '%s'", ctx.GetChild(2).(antlr.ParseTree).GetText())     // ✅ Cast to ParseTree
     
     v.Visit(ctx.GetChild(0).(antlr.ParseTree))
     v.Visit(ctx.GetChild(2).(antlr.ParseTree))
@@ -101,7 +93,6 @@ func (v *Visitor) VisitAddSub(ctx *parser.AddSubContext) interface{} {
     }
 
     c.Push(c.X0)
-    log.Printf("Finished addition/subtraction")
     return nil
 }
 
@@ -173,36 +164,21 @@ func (v *Visitor) VisitAddSubOperator(ctx *parser.AddSubOperatorContext) interfa
 
 // Agregar al final de compiler_visitor.go
 func (v *Visitor) VisitParens(ctx *parser.ParensContext) interface{} {
-    log.Printf("=== PARENS DEBUG ===")
-    log.Printf("Content: '%s'", ctx.GetText())
     
-    // Exactamente igual que el analyzer: visitar la expressionStatement directamente
     result := v.Visit(ctx.ExpressionStatement())
     
-    log.Printf("Finished visiting parens content")
     return result
 }
 
 func (v *Visitor) VisitPrintStatement(ctx *parser.PrintStatementContext) interface{} {
     c.Comment("Print statement")
     
-    log.Printf("=== PRINT STATEMENT DEBUG ===")
-    log.Printf("Total children: %d", ctx.GetChildCount())
-    for i := 0; i < ctx.GetChildCount(); i++ {
-        child := ctx.GetChild(i)
-        log.Printf("Child %d: %T - '%s'", i, child, child.(antlr.ParseTree).GetText()) // ✅ Cast to ParseTree
-    }
-    
     expressions := ctx.AllExpressionStatement()
-    log.Printf("Found %d expressions", len(expressions))
     
     if len(expressions) > 0 {
-        log.Printf("Expression 0: %T - '%s'", expressions[0], expressions[0].GetText()) // ✅ Ya es ParseTree
         
         // Visitar la primera expresión
-        log.Printf("About to visit expression...")
         v.Visit(expressions[0])
-        log.Printf("Finished visiting expression")
         
         // Pop el resultado y imprimir
         c.Pop(c.X0)
@@ -287,10 +263,6 @@ func (v *Visitor) VisitEqual(ctx *parser.EqualContext) interface{} {
 func (v *Visitor) VisitNegate(ctx *parser.NegateContext) interface{} {
     var op = ctx.GetChild(0).(*antlr.TerminalNodeImpl).GetText()
     
-    log.Printf("=== NEGATE DEBUG ===")
-    log.Printf("Operator: '%s'", op)
-    log.Printf("Expression to negate: '%s'", ctx.GetChild(1).(antlr.ParseTree).GetText()) // ✅ Cast to ParseTree
-    
     v.Visit(ctx.GetChild(1).(antlr.ParseTree))
     
     c.Pop(c.X0) // Pop the operand
@@ -305,6 +277,5 @@ func (v *Visitor) VisitNegate(ctx *parser.NegateContext) interface{} {
     }
 
     c.Push(c.X0) // Push the result back
-    log.Printf("Finished negation")
     return nil
 }

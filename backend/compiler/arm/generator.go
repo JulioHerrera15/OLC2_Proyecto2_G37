@@ -6,7 +6,140 @@ import (
 
 )
 
+type StackObjectType int
+
+const (
+    Int StackObjectType = iota
+    Float
+    String
+    Bool
+)
+
+// String method para convertir el enum a string (útil para debugging)
+func (s StackObjectType) String() string {
+    switch s {
+    case Int:
+        return "Int"
+    case Float:
+        return "Float"
+    case String:
+        return "String"
+    case Bool:
+        return "Bool"
+    default:
+        return "Unknown"
+    }
+}
+
+// Estructura StackObject corregida
+type StackObject struct {
+    Type   StackObjectType
+    Length int
+    Depth  int
+    Id     *string
+}
+
 var instructions = []string{}
+var stack = []StackObject{}
+var depth = 0
+
+// Stack Operations
+
+func PushObject(obj StackObject) {
+    stack = append(stack, obj)
+}
+
+func PushConstant(value int, objType StackObject) {
+    switch objType {
+    case StackObject{Type: Int}:
+        Mov(X0, value)
+        Push(X0)
+    case StackObject{Type: Float}:
+        // Aquí podrías implementar la lógica para manejar floats
+        // Por ahora, solo un placeholder
+        fmt.Println("Float type not implemented yet")
+    case StackObject{Type: String}:
+        // Aquí podrías implementar la lógica para manejar strings
+        // Por ahora, solo un placeholder
+        fmt.Println("String type not implemented yet")
+    case StackObject{Type: Bool}:
+        // Aquí podrías implementar la lógica para manejar booleanos
+        // Por ahora, solo un placeholder
+        fmt.Println("Bool type not implemented yet")
+    }
+
+    PushObject(objType)
+}
+
+func PopObject(rd string) StackObject {
+    var obj = stack[len(stack)-1]
+    stack = stack[:len(stack)-1] // Eliminar el último objeto del stack
+    Pop(rd)
+    return obj
+}
+
+func IntObject() StackObject {
+    return StackObject{Type: Int, Length: 8, Depth: depth, Id: nil}
+}
+
+func FloatObject() StackObject {
+    return StackObject{Type: Float, Length: 8, Depth: depth, Id: nil}
+}
+
+func StringObject(value string) StackObject {
+    return StackObject{Type: String, Length: 8, Depth: depth, Id: nil}
+}
+
+func BoolObject() StackObject {
+    return StackObject{Type: Bool, Length: 8, Depth: depth, Id: nil}
+}
+
+func CloneObject(obj StackObject) StackObject {
+    // Clonar un objeto del stack
+    return StackObject{
+        Type:   obj.Type,
+        Length: obj.Length,
+        Depth:  obj.Depth,
+        Id:     obj.Id,
+    }
+}
+
+func NewScope() {
+    depth++
+}
+
+func EndScope() int {
+    var byteOffset = 0
+
+    for i := len(stack) - 1; i >= 0; i-- {
+        if stack[i].Depth == depth {
+            // Si el objeto es del mismo nivel de profundidad, lo eliminamos
+            byteOffset += stack[i].Length
+            stack = stack[:len(stack)-1] // Eliminar el último objeto del stack  
+        } else {
+            // Si encontramos un objeto de menor profundidad, salimos del bucle
+            break
+        }
+    }
+
+    depth-- // Reducir la profundidad al salir del scope
+    return byteOffset // Retornar el tamaño en bytes del scope eliminado
+}
+
+func TagObject(id string) {
+    stack[len(stack)-1].Id = &id // Asignar un ID al último objeto del stack
+}
+
+func GetObject(id string) (int, StackObject) {
+
+    var byteOffset = 0
+    for i := len(stack) - 1; i >= 0; i-- {
+        if stack[i].Id != nil && *stack[i].Id == id {
+            return byteOffset, stack[i] // Retornar el índice y el objeto si encontramos el ID
+        }
+    }
+    return -1, StackObject{} // Retornar -1 y un objeto vacío si no se encuentra
+}
 
 func Add(rd string, rs1 string, rs2 string) {
 	instructions = append(instructions, fmt.Sprintf("add %s, %s, %s", rd, rs1, rs2))
