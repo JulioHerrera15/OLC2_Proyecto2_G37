@@ -1,8 +1,8 @@
 package arm
 
 import (
-	"fmt"
-	"strings"
+    "fmt"
+    "strings"
 
 )
 
@@ -49,28 +49,35 @@ func PushObject(obj StackObject) {
     stack = append(stack, obj)
 }
 
-func PushConstant(value int, objType StackObject) {
-    switch objType {
-    case StackObject{Type: Int}:
-        Mov(X0, value)
-        Push(X0)
-    case StackObject{Type: Float}:
-        // Aquí podrías implementar la lógica para manejar floats
-        // Por ahora, solo un placeholder
-        fmt.Println("Float type not implemented yet")
-    case StackObject{Type: String}:
-        // Aquí podrías implementar la lógica para manejar strings
-        // Por ahora, solo un placeholder
-        fmt.Println("String type not implemented yet")
-    case StackObject{Type: Bool}:
-        // Aquí podrías implementar la lógica para manejar booleanos
-        // Por ahora, solo un placeholder
-        fmt.Println("Bool type not implemented yet")
+func PushConstant(value interface{}, objType StackObject) {
+    switch objType.Type { 
+    case Int:             
+        Mov(X0, value.(int))
+    case Float:
+        //TODO    
+    case String:
+        var stringArray []byte = StringTo1ByteArray(value.(string))
+        Push(HP)
+
+        for i:=0; i<len(stringArray); i++{
+            var charCode = stringArray[i]
+            Comment(fmt.Sprintf("Pushing char %d to heap - (%c)", charCode, charCode))
+            Mov(W0, int(charCode))
+            StrB(W0, HP) // Guardar el byte en la posición actual del heap
+            Mov(X0, 1)
+            Add(HP, HP, X0) // Incrementar el puntero del heap
+        }
+    case Bool:
+        if value.(bool) {
+            Mov(X0, 1) // Verdadero
+        } else {
+            Mov(X0, 0) // Falso
+        }
+        Push(X0) // Guardar el booleano en el stack
     }
 
     PushObject(objType)
 }
-
 
 
 func PopObject(rd string) StackObject {
@@ -88,7 +95,7 @@ func FloatObject() StackObject {
     return StackObject{Type: Float, Length: 8, Depth: depth, Id: nil}
 }
 
-func StringObject(value string) StackObject {
+func StringObject() StackObject {
     return StackObject{Type: String, Length: 8, Depth: depth, Id: nil}
 }
 
@@ -207,6 +214,10 @@ func Str(rs1 string, rs2 string, offset int) {
 	instructions = append(instructions, fmt.Sprintf("str %s, [%s, #%d]", rs1, rs2, offset))
 }
 
+func StrB(rs1 string, rs2 string) {
+    instructions = append(instructions, fmt.Sprintf("strb %s, [%s]", rs1, rs2))
+}
+
 func Ldr(rd string, rs1 string, offset int) {
 	instructions = append(instructions, fmt.Sprintf("ldr %s, [%s, #%d]", rd, rs1, offset))
 }
@@ -250,22 +261,36 @@ func PrintInt(rs string) {
     Use("print_integer")
 }
 
+func PrintString(rs string) {
+    // Mover el puntero de la cadena al registro x0 (parámetro para print_string)
+    if rs != X0 {  // Solo mover si no es ya X0
+        MovReg(X0, rs)
+    }
+    
+    // Llamar a la función print_string
+    instructions = append(instructions, "bl print_string")
+    
+    // Marcar que usamos esta función estándar
+    Use("print_string")
+}
+
 func Comment(comment string) {
-	instructions = append(instructions, fmt.Sprintf("// %s", comment))
+	instructions = append(instructions, fmt.Sprintf("# %s", comment))
 }
 
 func ToString() string {
     var sb strings.Builder
+    sb.WriteString(".data\n")
+    sb.WriteString("heap: .space 4096\n")
     sb.WriteString(".text\n")
     sb.WriteString(".global _start\n")
     sb.WriteString("_start:\n")
+    sb.WriteString("    adr x10, heap\n")
 
-    // ✅ Simplemente imprimir todas las instrucciones
     for _, instr := range instructions {
         sb.WriteString(fmt.Sprintf("    %s\n", instr))
     }
     
-    // ✅ Funciones estándar
     standardFunctions := GetFunctionDefinitions()
     if standardFunctions != "" {
         sb.WriteString("\n\n\n// Standard Library\n")
