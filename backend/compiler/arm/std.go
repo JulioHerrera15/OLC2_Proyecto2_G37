@@ -1,13 +1,13 @@
 package arm
 
 import (
-    "strings"
+	"strings"
 )
 
 var usedFunctions = make(map[string]bool)
 
 var functionDefinitions = map[string]string{
-    "print_integer": `
+	"print_integer": `
 print_integer:
     // Save registers
     stp x29, x30, [sp, #-16]!
@@ -98,7 +98,7 @@ minus_sign:
 newline:
     .ascii "\n"`,
 
-    "print_string": `
+	"print_string": `
 print_string:
     // Save link register and other registers we'll use
     stp     x29, x30, [sp, #-16]!
@@ -141,20 +141,66 @@ print_done:
 
 string_newline:
     .ascii "\n"`,
+
+	"atoi": `
+atoi:
+    // x0 = dirección de string
+    mov x1, #0              // acumulador
+
+atoi_loop:
+    ldrb w2, [x0], #1       // cargar byte, avanzar puntero
+    cmp w2, #0
+    beq atoi_done           // fin si es nulo
+
+    cmp w2, #'.'
+    beq atoi_error
+
+    cmp w2, #'0'
+    blt atoi_error
+    cmp w2, #'9'
+    bgt atoi_error
+
+    uxtb x2, w2             // extender byte sin signo a 64 bits
+    sub x2, x2, #'0'        // convertir ASCII a número
+
+    mov x3, #10
+    mul x1, x1, x3
+    add x1, x1, x2
+
+    b atoi_loop
+
+atoi_done:
+    mov x0, x1              // devolver resultado en x0
+    ret
+
+atoi_error:
+    mov x0, #1
+    adr x1, atoi_error_msg
+    mov x2, #27
+    mov x8, #64
+    svc #0
+
+    mov x0, #1
+    mov x8, #93
+    svc #0
+
+atoi_error_msg:
+    .ascii "Error: entrada inválida en Atoi\n"
+`,
 }
 
 func Use(function string) {
-    usedFunctions[function] = true
+	usedFunctions[function] = true
 }
 
 func GetFunctionDefinitions() string {
-    var functions []string
+	var functions []string
 
-    for function := range usedFunctions {
-        if definition, exists := functionDefinitions[function]; exists {
-            functions = append(functions, definition)
-        }
-    }
+	for function := range usedFunctions {
+		if definition, exists := functionDefinitions[function]; exists {
+			functions = append(functions, definition)
+		}
+	}
 
-    return strings.Join(functions, "\n\n")
+	return strings.Join(functions, "\n\n")
 }
