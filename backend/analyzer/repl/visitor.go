@@ -963,32 +963,38 @@ func (v *ReplVisitor) VisitIdentifier(ctx *parser.IdentifierContext) interface{}
 }
 
 func (v *ReplVisitor) VisitExplicitDeclaration(ctx *parser.ExplicitDeclarationContext) interface{} {
-	var varName string
-	var varValue interface{}
-	var isMutable bool = false
+    var varName string
+    var varValue interface{}
+    var declaredType string
+    var isMutable bool = false
 
-	// Recorrer todos los hijos para encontrar ID, TYPE, mut, etc.
-	for i := 0; i < ctx.GetChildCount(); i++ {
-		child := ctx.GetChild(i)
+    // Recorrer todos los hijos para encontrar ID, TYPE, mut, etc.
+    for i := 0; i < ctx.GetChildCount(); i++ {
+        child := ctx.GetChild(i)
 
-		if terminal, ok := child.(antlr.TerminalNode); ok {
-			tokenType := terminal.GetSymbol().GetTokenType()
-			text := terminal.GetText()
+        if terminal, ok := child.(antlr.TerminalNode); ok {
+            tokenType := terminal.GetSymbol().GetTokenType()
+            text := terminal.GetText()
 
-			if text == "mut" {
-				isMutable = true
-				continue
-			}
+            if text == "mut" {
+                isMutable = true
+                continue
+            }
 
-			if tokenType == parser.LanguageLexerID {
-				varName = text
-				continue
-			}
-		}
-	}
+            if tokenType == parser.LanguageLexerID {
+                varName = text
+                continue
+            }
+        }
+    }
 
-	// Verificar redeclaración
-	if varName != "" {
+    // Obtener el tipo declarado
+    if ctx.TYPE() != nil {
+        declaredType = ctx.TYPE().GetText()
+    }
+
+    // Verificar redeclaración
+    if varName != "" {
         if v.ScopeTrace.ExistsInCurrentScope(varName) {
             v.ErrorTable.NewSemanticError(ctx.GetStart(),
                 fmt.Sprintf("Error de redeclaración: la variable '%s' ya está declarada en este scope", varName))
@@ -996,64 +1002,59 @@ func (v *ReplVisitor) VisitExplicitDeclaration(ctx *parser.ExplicitDeclarationCo
         }
     }
 
-	// Procesar valor
-	if ctx.ExpressionStatement() != nil {
-		varValue = v.Visit(ctx.ExpressionStatement())
-	} else {
-		// Valor por defecto según el tipo
-		if ctx.TYPE() != nil {
-			switch ctx.TYPE().GetText() {
-			case "int":
-				varValue = 0
-			case "float64", "float":
-				varValue = 0.0
-			case "string":
-				varValue = ""
-			case "bool":
-				varValue = false
-			default:
-				varValue = nil
-			}
-		}
-	}
-
-	// Registrar símbolo CON información de mutabilidad
-	if varName != "" && ctx.TYPE() != nil {
-		dataType := ctx.TYPE().GetText()
-		if isMutable {
-			dataType += " (mut)"
-		}
-
-		symbol := Symbol{
-			ID:         varName,
-			SymbolType: VariableSymbol,
-			DataType:   dataType,
-			Scope:      v.getCurrentScope(),
-			Line:       ctx.GetStart().GetLine(),
-			Column:     ctx.GetStart().GetColumn(),
-		}
-		v.SymbolsTable.AddSymbol(symbol)
-
-		if varName != "" {
-			v.SetVariable(varName, varValue)
-		}
-	}
-
-	if varName != "" {
-    // Si estamos en un scope local y la variable existe globalmente,
-    // crear una variable local que "sombree" la global
-    if len(v.ScopeTrace.ScopeStack) > 1 {
-        if _, existsGlobally := v.SymbolTable[varName]; existsGlobally {
-            // Crear variable local que sombrea la global
-            v.ScopeTrace.CreateLocalVariable(varName, varValue)
-            return nil
+    // Procesar valor
+    if ctx.ExpressionStatement() != nil {
+        varValue = v.Visit(ctx.ExpressionStatement())
+        
+        // ✅ VALIDACIÓN DE TIPOS
+        if declaredType != "" && varValue != nil {
+            if !v.isValueCompatibleWithDeclaredType(varValue, declaredType) {
+                actualType := v.getTypeName(varValue)
+                v.ErrorTable.NewSemanticError(ctx.GetStart(),
+                    fmt.Sprintf("Error de tipos: No se puede asignar valor de tipo '%s' a variable de tipo '%s'", 
+                        actualType, declaredType))
+                return nil
+            }
+        }
+    } else {
+        // Valor por defecto según el tipo
+        if declaredType != "" {
+            varValue = v.getDefaultValueForType(declaredType)
         }
     }
-    
-    v.SetVariable(varName, varValue)
-}
 
-	return nil
+    // Registrar símbolo CON información de mutabilidad
+    if varName != "" && declaredType != "" {
+        dataType := declaredType
+        if isMutable {
+            dataType += " (mut)"
+        }
+
+        symbol := Symbol{
+            ID:         varName,
+            SymbolType: VariableSymbol,
+            DataType:   dataType,
+            Scope:      v.getCurrentScope(),
+            Line:       ctx.GetStart().GetLine(),
+            Column:     ctx.GetStart().GetColumn(),
+        }
+        v.SymbolsTable.AddSymbol(symbol)
+    }
+
+    if varName != "" {
+        // Si estamos en un scope local y la variable existe globalmente,
+        // crear una variable local que "sombree" la global
+        if len(v.ScopeTrace.ScopeStack) > 1 {
+            if _, existsGlobally := v.SymbolTable[varName]; existsGlobally {
+                v.ScopeTrace.CreateLocalVariable(varName, varValue)
+                return nil
+            }
+        }
+        
+        v.SetVariable(varName, varValue)
+    }
+
+    return nil
 }
 
 func (v *ReplVisitor) VisitImplicitDeclaration(ctx *parser.ImplicitDeclarationContext) interface{} {
@@ -1440,22 +1441,42 @@ func (v *ReplVisitor) VisitMatrixAccess(ctx *parser.MatrixAccessContext) interfa
 }
 
 func (v *ReplVisitor) VisitSliceAssignment(ctx *parser.SliceAssignmentContext) interface{} {
-	sliceName := ctx.ID().GetText()
-	index := v.Visit(ctx.GetChild(2).(antlr.ParseTree)).(int)
-	value := v.Visit(ctx.GetChild(5).(antlr.ParseTree))
+    sliceName := ctx.ID().GetText()
+    index := v.Visit(ctx.GetChild(2).(antlr.ParseTree)).(int)
+    value := v.Visit(ctx.GetChild(5).(antlr.ParseTree))
 
-	if slice, exists := v.GetVariable(sliceName); exists {
-		if slice, ok := slice.([]interface{}); ok {
-			if index >= 0 && index < len(slice) {
-				slice[index] = value
-				v.UpdateVariable(sliceName, slice)
-			} else {
-				v.ErrorTable.NewSemanticError(ctx.GetStart(), "Índice fuera de rango para el slice '"+sliceName+"'")
-			}
-		}
-	}
+    if slice, exists := v.GetVariable(sliceName); exists {
+        if sliceData, ok := slice.([]interface{}); ok {
+            if index >= 0 && index < len(sliceData) {
+                // VALIDACIÓN DE TIPOS EN SLICE
+                if len(sliceData) > 0 {
+                    existingElementType := v.getTypeName(sliceData[0])
+                    newElementType := v.getTypeName(value)
+                    
+                    if !v.isValueCompatibleForAssignment(value, existingElementType) {
+                        v.ErrorTable.NewSemanticError(ctx.GetStart(),
+                            fmt.Sprintf("Error de tipos: No se puede asignar valor de tipo '%s' a slice de tipo '%s'",
+                                newElementType, existingElementType))
+                        return nil
+                    }
+                }
+                
+                sliceData[index] = value
+                v.UpdateVariable(sliceName, sliceData)
+            } else {
+                v.ErrorTable.NewSemanticError(ctx.GetStart(), 
+                    fmt.Sprintf("Índice %d fuera de rango para el slice '%s'", index, sliceName))
+            }
+        } else {
+            v.ErrorTable.NewSemanticError(ctx.GetStart(), 
+                fmt.Sprintf("'%s' no es un slice", sliceName))
+        }
+    } else {
+        v.ErrorTable.NewSemanticError(ctx.GetStart(), 
+            fmt.Sprintf("Variable '%s' no declarada", sliceName))
+    }
 
-	return nil
+    return nil
 }
 
 func (v *ReplVisitor) VisitMatrixAssignment(ctx *parser.MatrixAssignmentContext) interface{} {
@@ -3068,4 +3089,78 @@ func (v *ReplVisitor) VisitContinueStatement(ctx *parser.ContinueStatementContex
 
 func (v *ReplVisitor) VisitNil(ctx *parser.NilContext) interface{} {
 	return nil
+}
+
+// ✅ AGREGAR al final del archivo visitor.go:
+
+// Validar compatibilidad entre valor y tipo declarado
+func (v *ReplVisitor) isValueCompatibleWithDeclaredType(value interface{}, declaredType string) bool {
+    actualType := v.getTypeName(value)
+    
+    // Tipos exactamente iguales
+    if actualType == declaredType {
+        return true
+    }
+    
+    // Compatibilidades específicas
+    switch declaredType {
+    case "int":
+        return actualType == "int"
+    case "float64", "float":
+        return actualType == "float64" || actualType == "int" // int puede convertirse a float
+    case "string":
+        return actualType == "string"
+    case "bool":
+        return actualType == "bool"
+    default:
+        // Para tipos custom (structs), debe ser exacto
+        return actualType == declaredType
+    }
+}
+
+// Obtener valor por defecto para un tipo
+func (v *ReplVisitor) getDefaultValueForType(typeName string) interface{} {
+    switch typeName {
+    case "int":
+        return 0
+    case "float64", "float":
+        return 0.0
+    case "string":
+        return ""
+    case "bool":
+        return false
+    default:
+        // Para structs, crear instancia vacía
+        if structType, exists := v.StructTypes[typeName]; exists {
+            instance := &StructInstance{
+                TypeName: typeName,
+                Fields:   make(map[string]interface{}),
+            }
+            for fieldName, fieldType := range structType.Fields {
+                instance.Fields[fieldName] = v.getDefaultValueForType(fieldType)
+            }
+            return instance
+        }
+        return nil
+    }
+}
+
+// Validar compatibilidad para asignaciones (más estricta)
+func (v *ReplVisitor) isValueCompatibleForAssignment(value interface{}, expectedType string) bool {
+    actualType := v.getTypeName(value)
+    
+    // Tipos exactamente iguales
+    if actualType == expectedType {
+        return true
+    }
+    
+    // Solo permitir int → float64 en asignaciones
+    if expectedType == "float64" && actualType == "int" {
+        return true
+    }
+    if expectedType == "float" && actualType == "int" {
+        return true
+    }
+    
+    return false
 }
