@@ -2,6 +2,7 @@ package arm
 
 import (
 	"fmt"
+	"math"
 	"strings"
 )
 
@@ -41,6 +42,11 @@ var instructions = []string{}
 var stack = []StackObject{}
 var depth = 0
 
+func TopObject() StackObject {
+	return stack[len(stack)-1]
+}
+
+
 func PushObject(obj StackObject) {
 	stack = append(stack, obj)
 }
@@ -51,7 +57,21 @@ func PushConstant(value interface{}, objType StackObject) {
 		Mov(X0, value.(int))
 		Push(X0)
 	case Float:
-		//TODO
+		var floatBits int64 = int64(math.Float64bits(value.(float64)))
+		var floatParts = [4]int16{}
+
+		for i := 0; i < 4; i++ {
+			floatParts[i] = int16((floatBits >> (i * 16)) & 0xFFFF)
+		}
+		instructions = append(instructions, fmt.Sprintf("movz x0, #%d, lsl #0", floatParts[0]))
+
+		for i := 1; i < 4; i++ {
+			instructions = append(instructions, fmt.Sprintf("movk x0, #%d, lsl #%d", floatParts[i], i*16))
+		}
+
+		Push(X0)
+
+
 	case String:
 		var stringArray []byte = StringTo1ByteArray(value.(string))
 		Push(HP)
@@ -228,6 +248,32 @@ func Pop(rd string) {
 	instructions = append(instructions, fmt.Sprintf("ldr %s, [sp], #8", rd))
 }
 
+// Float operations
+
+func Scvtf(rd string, rs string) {
+	instructions = append(instructions, fmt.Sprintf("scvtf %s, %s", rd, rs))
+}
+
+func FMov(rd string, rs string) {
+	instructions = append(instructions, fmt.Sprintf("fmov %s, %s", rd, rs))
+}
+
+func FAdd(rd string, rs1 string, rs2 string ) {
+	instructions = append(instructions, fmt.Sprintf("fadd %s, %s, %s", rd, rs1, rs2))
+}
+
+func FSub(rd string, rs1 string, rs2 string) {
+	instructions = append(instructions, fmt.Sprintf("fsub %s, %s, %s", rd, rs1, rs2))
+}
+
+func FMul(rd string, rs1 string, rs2 string) {
+	instructions = append(instructions, fmt.Sprintf("fmul %s, %s, %s", rd, rs1, rs2))
+}
+
+func FDiv(rd string, rs1 string, rs2 string) {
+	instructions = append(instructions, fmt.Sprintf("fdiv %s, %s, %s", rd, rs1, rs2))
+}
+
 func Svc() {
 	instructions = append(instructions, "svc #0")
 }
@@ -249,6 +295,12 @@ func PrintInt(rs string) {
 	Use("print_integer")
 }
 
+func PrintFloat() {
+	Use("print_integer")
+	Use("print_double")
+	instructions = append(instructions, "bl print_double")
+}
+
 func PrintString(rs string) {
 	if rs != X0 {
 		MovReg(X0, rs)
@@ -264,30 +316,47 @@ func Comment(comment string) {
 }
 
 func ToString() string {
-	var sb strings.Builder
-	sb.WriteString(".data\n")
-	sb.WriteString("heap: .space 4096\n")
-	sb.WriteString(".text\n")
-	sb.WriteString(".global _start\n")
-	sb.WriteString("_start:\n")
-	sb.WriteString("    adr x10, heap\n")
+    var sb strings.Builder
+    sb.WriteString(".data\n")
+    sb.WriteString("heap: .space 4096\n")
 
-	for _, instr := range instructions {
-		sb.WriteString(fmt.Sprintf("    %s\n", instr))
-	}
+    // Agrega los símbolos usados aquí
+    if usedSymbols["minus_sign"] {
+        sb.WriteString("minus_sign: .ascii \"-\"\n")
+    }
+    if usedSymbols["newline"] {
+        sb.WriteString("newline: .ascii \"\\n\"\n")
+    }
+    if usedSymbols["dot_char"] {
+        sb.WriteString("dot_char: .ascii \".\"\n")
+    }
+    if usedSymbols["zero_char"] {
+        sb.WriteString("zero_char: .ascii \"0\"\n")
+    }
+    if usedSymbols["double_newline"] {
+        sb.WriteString("double_newline: .ascii \"\\n\"\n")
+    }
 
-	// Agregar llamada a EndProgram si no se ha agregado manualmente
-	sb.WriteString("    mov x0, #0\n")
-	sb.WriteString("    mov x8, #93\n")
-	sb.WriteString("    svc #0\n")
+    sb.WriteString(".text\n")
+    sb.WriteString(".global _start\n")
+    sb.WriteString("_start:\n")
+    sb.WriteString("    adr x10, heap\n")
 
-	standardFunctions := GetFunctionDefinitions()
-	if standardFunctions != "" {
-		sb.WriteString("\n// Standard Library Functions\n")
-		sb.WriteString(standardFunctions)
-	}
+    for _, instr := range instructions {
+        sb.WriteString(fmt.Sprintf("    %s\n", instr))
+    }
 
-	return sb.String()
+    sb.WriteString("    mov x0, #0\n")
+    sb.WriteString("    mov x8, #93\n")
+    sb.WriteString("    svc #0\n")
+
+    standardFunctions := GetFunctionDefinitions()
+    if standardFunctions != "" {
+        sb.WriteString("\n// Standard Library Functions\n")
+        sb.WriteString(standardFunctions)
+    }
+
+    return sb.String()
 }
 
 func Bl(label string) {

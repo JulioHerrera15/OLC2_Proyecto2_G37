@@ -80,6 +80,22 @@ func (v *Visitor) VisitInteger(ctx *parser.IntegerContext) interface{} {
 
 	return nil
 }
+
+func (v *Visitor) VisitFloat(ctx *parser.FloatContext) interface{} {
+	var value = ctx.GetText()
+
+	floatValue, err := strconv.ParseFloat(value, 64)
+	if err != nil {
+		log.Printf("Error parsing float: %v", err)
+		floatValue = 0.0
+	}
+
+	var floatObject = c.FloatObject()
+	c.PushConstant(floatValue, floatObject)
+	
+	return nil
+}
+
 func (v *Visitor) VisitString(ctx *parser.StringContext) interface{} {
 	var value = strings.Trim(ctx.GetText(), `"`) // Eliminar comillas
 	c.Comment("Constant String: " + value)
@@ -117,8 +133,23 @@ func (v *Visitor) VisitAddSub(ctx *parser.AddSubContext) interface{} {
 
 	// Se pueden obtener los operandos directamente de la pila
 
-	c.PopObject(c.X1)
-	var left = c.PopObject(c.X0)
+	var isRightDouble = c.TopObject().Type == c.StackObjectType(c.Float)
+	var rightReg interface{}
+	if isRightDouble {
+		rightReg = c.D0
+	} else {
+		rightReg = c.X0
+	}
+	var right = c.PopObject(rightReg.(string)) // Pop second operand
+
+	var isLeftDouble = c.TopObject().Type == c.StackObjectType(c.Float)
+	var leftReg interface{}
+	if isLeftDouble {
+		leftReg = c.D1
+	} else {
+		leftReg = c.X1
+	}
+	var left = c.PopObject(leftReg.(string)) // Pop first operand
 
 	// Esto permite que los operandos sean objetos del stack
 	// y se manejen de manera más flexible.
@@ -129,18 +160,44 @@ func (v *Visitor) VisitAddSub(ctx *parser.AddSubContext) interface{} {
 	// con los operandos, por ejemplo, si la operación es de entero con entero
 	// o de entero con flotante, etc.
 
+	if isLeftDouble || isRightDouble {
+		if !isLeftDouble {c.Scvtf(c.D1, c.X1)}
+		if !isRightDouble {c.Scvtf(c.D0, c.X0)}
+
+		switch op {
+		case "+":
+			c.Comment("Addition operator for double")
+			c.FAdd(c.D0, c.D0, c.D1) // D0 = D0 + D1
+		case "-":
+			c.Comment("Subtraction operator for double")
+			c.FSub(c.D0, c.D1, c.D0) // D0 = D1 - D0
+		}
+
+		c.Comment("Pushing result of double operation")
+		c.Push(c.D0) // Push the result of the double operation
+		c.PushObject(c.CloneObject(left)) // Push the left operand object to the stack
+
+		return nil
+	}
+
 	switch op {
 	case "+":
 		c.Comment("Addition operator")
 		c.Add(c.X0, c.X0, c.X1)
 	case "-":
 		c.Comment("Subtraction operator")
-		c.Sub(c.X0, c.X0, c.X1)
+		c.Sub(c.X0, c.X1, c.X0)
 	}
 
 	c.Push(c.X0)
 	// Pushear tambien en la pila virtual
-	c.PushObject(c.CloneObject(left))
+	var objToPush interface{}
+	if isLeftDouble {
+		objToPush = left
+	} else {
+		objToPush = right
+	}
+	c.PushObject(c.CloneObject(objToPush.(c.StackObject)))
 
 	// Se hace de momento con left a forma de demostración,
 	// pero se debería hacer con el tipo de mayor predominancia.
@@ -244,7 +301,21 @@ func (v *Visitor) VisitPrintStatement(ctx *parser.PrintStatementContext) interfa
 		v.Visit(expressions[0])
 
 		// Pop el resultado y imprimir
-		var value = c.PopObject(c.X0)
+
+		// Determinar si el valor es flotante
+		isDouble := false
+		if c.TopObject().Type == c.StackObjectType(c.Float) {
+			isDouble = true
+		}
+
+		var reg string
+		if isDouble {
+			reg = c.D0 // Si es un flotante, usar D0
+		} else {
+			reg = c.X0 // Si es un entero o cadena, usar X0
+		}
+
+		var value = c.PopObject(reg)
 
 		if value.Type == c.StackObjectType(c.Int) {
 			c.PrintInt(c.X0) // Imprimir entero
@@ -253,6 +324,8 @@ func (v *Visitor) VisitPrintStatement(ctx *parser.PrintStatementContext) interfa
 			c.PrintString(c.X0) // Imprimir cadena
 		} else if value.Type == c.StackObjectType(c.Bool) {
 			c.PrintInt(c.X0) // Imprimir booleano como entero (1 o 0)
+		} else if value.Type == c.StackObjectType(c.Float) {
+			c.PrintFloat()
 		}
 	}
 
