@@ -362,3 +362,11 @@ func ToString() string {
 func Bl(label string) {
 	instructions = append(instructions, fmt.Sprintf("bl %s", label))
 }
+
+func PrintStringInline(rs string) {
+    if rs != X0 {
+        MovReg(X0, rs)
+    }
+    instructions = append(instructions, "bl print_string_inline")
+    Use("print_string_inline")
+}

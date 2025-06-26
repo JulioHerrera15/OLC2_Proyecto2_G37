@@ -140,6 +140,31 @@ print_done:
 string_newline:
     .ascii "\n"`,
 
+    "print_string_inline": `
+print_string_inline:
+    stp     x29, x30, [sp, #-16]!
+    stp     x19, x20, [sp, #-16]!
+    mov     x19, x0
+
+print_loop_inline:
+    ldrb    w20, [x19]
+    cbz     w20, print_done_inline
+
+    mov     x0, #1
+    mov     x1, x19
+    mov     x2, #1
+    mov     x8, #64
+    svc     #0
+
+    add     x19, x19, #1
+    b       print_loop_inline
+
+print_done_inline:
+    ldp     x19, x20, [sp], #16
+    ldp     x29, x30, [sp], #16
+    ret
+`,
+
     "print_double": `
     //--------------------------------------------------------------
 // print_double - Prints a double precision float to stdout

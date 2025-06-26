@@ -282,7 +282,6 @@ func (v *Visitor) VisitAddSubOperator(ctx *parser.AddSubOperatorContext) interfa
 	return nil
 }
 
-// Agregar al final de compiler_visitor.go
 func (v *Visitor) VisitParens(ctx *parser.ParensContext) interface{} {
 
 	result := v.Visit(ctx.ExpressionStatement())
@@ -291,45 +290,39 @@ func (v *Visitor) VisitParens(ctx *parser.ParensContext) interface{} {
 }
 
 func (v *Visitor) VisitPrintStatement(ctx *parser.PrintStatementContext) interface{} {
-	c.Comment("Print statement")
+    c.Comment("Print statement")
 
-	expressions := ctx.AllExpressionStatement()
+    expressions := ctx.AllExpressionStatement()
+    n := len(expressions)
 
-	if len(expressions) > 0 {
+    for i, expr := range expressions {
+        v.Visit(expr)
 
-		// Visitar la primera expresión
-		v.Visit(expressions[0])
+        isDouble := c.TopObject().Type == c.StackObjectType(c.Float)
+        var reg string
+        if isDouble {
+            reg = c.D0
+        } else {
+            reg = c.X0
+        }
+        var value = c.PopObject(reg)
 
-		// Pop el resultado y imprimir
+        if value.Type == c.StackObjectType(c.Int) {
+            c.PrintInt(c.X0)
+        } else if value.Type == c.StackObjectType(c.String) {
+            if i == n-1 {
+                c.PrintString(c.X0) // Último: imprime con salto de línea
+            } else {
+                c.PrintStringInline(c.X0) // Intermedios: sin salto de línea
+            }
+        } else if value.Type == c.StackObjectType(c.Bool) {
+            c.PrintInt(c.X0)
+        } else if value.Type == c.StackObjectType(c.Float) {
+            c.PrintFloat()
+        }
+    }
 
-		// Determinar si el valor es flotante
-		isDouble := false
-		if c.TopObject().Type == c.StackObjectType(c.Float) {
-			isDouble = true
-		}
-
-		var reg string
-		if isDouble {
-			reg = c.D0 // Si es un flotante, usar D0
-		} else {
-			reg = c.X0 // Si es un entero o cadena, usar X0
-		}
-
-		var value = c.PopObject(reg)
-
-		if value.Type == c.StackObjectType(c.Int) {
-			c.PrintInt(c.X0) // Imprimir entero
-
-		} else if value.Type == c.StackObjectType(c.String) {
-			c.PrintString(c.X0) // Imprimir cadena
-		} else if value.Type == c.StackObjectType(c.Bool) {
-			c.PrintInt(c.X0) // Imprimir booleano como entero (1 o 0)
-		} else if value.Type == c.StackObjectType(c.Float) {
-			c.PrintFloat()
-		}
-	}
-
-	return nil
+    return nil
 }
 
 func (v *Visitor) VisitAnd(ctx *parser.AndContext) interface{} {
