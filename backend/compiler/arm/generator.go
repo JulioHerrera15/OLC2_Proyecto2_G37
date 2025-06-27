@@ -336,6 +336,10 @@ func ToString() string {
     if usedSymbols["double_newline"] {
         sb.WriteString("double_newline: .ascii \"\\n\"\n")
     }
+	if usedSymbols["atoi_error_msg"] {
+		sb.WriteString("atoi_error_msg: .ascii \"Error: entrada inválida en Atoi\\n\"\n")
+	}
+	
 
     sb.WriteString(".text\n")
     sb.WriteString(".global _start\n")
