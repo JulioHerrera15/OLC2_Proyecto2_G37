@@ -357,6 +357,104 @@ print_result_inline:
     ret
 `,
 
+"print_double_inline": `
+print_double_inline:
+    // Save context
+    stp x29, x30, [sp, #-16]!    
+    stp x19, x20, [sp, #-16]!
+    stp x21, x22, [sp, #-16]!
+    stp x23, x24, [sp, #-16]!
+    
+    // Check if number is negative
+    fmov x19, d0
+    tst x19, #(1 << 63)       // Comprueba el bit de signo
+    beq skip_minus_inline
+
+    // Print minus sign
+    mov x0, #1
+    adr x1, minus_sign
+    mov x2, #1
+    mov x8, #64
+    svc #0
+
+    // Make value positive
+    fneg d0, d0
+
+skip_minus_inline:
+    // Convert integer part
+    fcvtzs x0, d0             // x0 = int(d0)
+    bl print_integer_inline
+
+    // Print dot '.'
+    mov x0, #1
+    adr x1, dot_char
+    mov x2, #1
+    mov x8, #64
+    svc #0
+
+    // Get fractional part: frac = d0 - float(int(d0))
+    frintm d4, d0             // d4 = floor(d0)
+    fsub d2, d0, d4           // d2 = d0 - floor(d0) (exact fraction)
+
+    // Multiplicar por 1_000_000 (6 decimales)
+    movz x1, #0x000F, lsl #16
+    movk x1, #0x4240, lsl #0   // x1 = 1000000
+    scvtf d3, x1              // d3 = 1000000.0
+    fmul d2, d2, d3           // d2 = frac * 1_000_000
+    
+    // Redondear al entero más cercano para evitar errores de precisión
+    frintn d2, d2             // d2 = round(d2)
+    fcvtzs x0, d2             // x0 = int(d2)
+
+    // Imprimir ceros a la izquierda si es necesario
+    mov x20, x0               // x20 = fracción entera
+    movz x21, #0x0001, lsl #16
+    movk x21, #0x86A0, lsl #0  // x21 = 100000
+    mov x22, #0               // inicializar contador de ceros
+    mov x23, #10              // constante para división
+
+leading_zero_loop_inline:
+    udiv x24, x20, x21        // x24 = x20 / x21
+    cbnz x24, done_leading_zeros_inline  // Si hay un dígito no cero, salir del bucle
+
+    // Imprimir '0'
+    mov x0, #1
+    adr x1, zero_char
+    mov x2, #1
+    mov x8, #64
+    svc #0
+
+    udiv x21, x21, x23        // x21 /= 10
+    add x22, x22, #1          // incrementar contador de ceros
+    cmp x21, #0               // verificar si llegamos al final
+    beq print_remaining_inline       // si divisor es 0, saltar a imprimir el resto
+    b leading_zero_loop_inline
+
+done_leading_zeros_inline:
+    // Print the remaining fractional part
+    mov x0, x20
+    bl print_integer_inline
+    b exit_function_inline
+
+print_remaining_inline:
+    // Caso especial cuando la parte fraccionaria es 0 después de imprimir ceros
+    cmp x20, #0
+    bne exit_function_inline
+    
+    // Ya imprimimos todos los ceros necesarios
+    // No hace falta imprimir nada más
+
+exit_function_inline:
+    // NO imprime salto de línea aquí
+
+    // Restore context
+    ldp x23, x24, [sp], #16
+    ldp x21, x22, [sp], #16
+    ldp x19, x20, [sp], #16
+    ldp x29, x30, [sp], #16
+    ret
+`,
+
 	"atoi": `
 atoi:
     // x0 = dirección de string
@@ -417,6 +515,13 @@ func Use(function string) {
         usedSymbols["double_newline"] = true
         usedSymbols["minus_sign"] = true
         usedFunctions["print_integer_inline"] = true
+    case "print_integer_inline":
+        usedSymbols["minus_sign"] = true
+    case "print_double_inline":
+        usedSymbols["dot_char"] = true
+        usedSymbols["zero_char"] = true
+        usedSymbols["minus_sign"] = true
+        usedFunctions["print_integer_inline"] = true
     }
 }
 
@@ -438,4 +543,9 @@ var Symbols = map[string]string{
     "zero_char":     `.ascii "0"`,
     "newline":       `.ascii "\n"`,
     "double_newline": `.ascii "\n"`,
+    "char_91": `.ascii "["`,
+    "char_93": `.ascii "]"`,
+    "char_44": `.ascii ","`,
+    "char_32": `.ascii " "`,
+    "char_10": `.ascii "\n"`,
 }

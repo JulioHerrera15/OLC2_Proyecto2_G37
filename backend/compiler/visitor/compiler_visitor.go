@@ -6,7 +6,7 @@ import (
 	"log"
 	"strconv"
 	"strings"
-
+	"fmt"
 	"github.com/antlr4-go/antlr/v4"
 )
 
@@ -297,28 +297,65 @@ func (v *Visitor) VisitPrintStatement(ctx *parser.PrintStatementContext) interfa
 
     for i, expr := range expressions {
         v.Visit(expr)
+        obj := c.TopObject()
 
-        isDouble := c.TopObject().Type == c.StackObjectType(c.Float)
-        var reg string
-        if isDouble {
-            reg = c.D0
+        // Si es slice, imprime todos los elementos
+		if obj.IsSlice {
+			c.Comment("Entrando a impresión de slice")
+			c.Pop(c.X9)           // Pop real: dirección base del slice
+			c.PopObject(c.X0)     // Pop virtual: objeto del slice
+			length := obj.Size
+			elemType := obj.ElemType
+
+			// Imprime '['
+			c.PrintChar('[')
+
+			for j := 0; j < length; j++ {
+				c.Ldr(c.X0, c.X9, j*8)
+				c.Comment(fmt.Sprintf("DEBUG puntero string #%d:", j))
+				// Aquí imprime el valor según el tipo
+				switch elemType {
+				case c.Int:
+					c.PrintIntInline(c.X0)
+				case c.String:
+					c.PrintStringInline(c.X0)
+				case c.Float:
+					c.LdrF(c.D0, c.X9, j*8)
+					c.PrintFloatInline(c.D0)
+				}
+				if j < length-1 {
+					c.PrintChar(',')
+					c.PrintChar(' ')
+				}
+			}
+			c.PrintChar(']')
+			if i == n-1 {
+				c.PrintChar('\n')
+			}
         } else {
-            reg = c.X0
-        }
-        var value = c.PopObject(reg)
-
-        if value.Type == c.StackObjectType(c.Int) {
-            c.PrintInt(c.X0)
-        } else if value.Type == c.StackObjectType(c.String) {
-            if i == n-1 {
-                c.PrintString(c.X0) // Último: imprime con salto de línea
+            // Comportamiento original para no-slices
+            isDouble := obj.Type == c.StackObjectType(c.Float)
+            var reg string
+            if isDouble {
+                reg = c.D0
             } else {
-                c.PrintStringInline(c.X0) // Intermedios: sin salto de línea
+                reg = c.X0
             }
-        } else if value.Type == c.StackObjectType(c.Bool) {
-            c.PrintInt(c.X0)
-        } else if value.Type == c.StackObjectType(c.Float) {
-            c.PrintFloat()
+            value := c.PopObject(reg)
+
+            if value.Type == c.StackObjectType(c.Int) {
+                c.PrintInt(c.X0)
+            } else if value.Type == c.StackObjectType(c.String) {
+                if i == n-1 {
+                    c.PrintString(c.X0)
+                } else {
+                    c.PrintStringInline(c.X0)
+                }
+            } else if value.Type == c.StackObjectType(c.Bool) {
+                c.PrintInt(c.X0)
+            } else if value.Type == c.StackObjectType(c.Float) {
+                c.PrintFloat()
+            }
         }
     }
 
@@ -532,4 +569,183 @@ func (v *Visitor) VisitFunctionCall(ctx *parser.FunctionCallContext) interface{}
 
 	log.Fatalf("Función no reconocida: %s", functionName)
 	return nil
+}
+
+func (v *Visitor) VisitSliceLiteral(ctx *parser.SliceLiteralContext) interface{} {
+    exprs := ctx.AllExpressionStatement()
+    n := len(exprs)
+
+    c.Comment(fmt.Sprintf("Slice literal con %d elementos", n))
+
+    // Reserva espacio para el slice en el heap y avanza el heap pointer
+    c.MovReg(c.X9, c.HP) // x9 = base del slice
+    if n > 0 {
+        c.Addi(c.HP, c.HP, n*8) // Avanza el heap pointer para NO pisar el slice
+    }
+
+   	var elemType c.StackObjectType
+
+	for i, expr := range exprs {
+		// Detecta si el elemento es un string
+		if strCtx, ok := expr.(*parser.StringContext); ok {
+			value := strCtx.GetText()
+			value = strings.Trim(value, `"`)
+			c.Comment("Constant String (slice): " + value)
+			c.PushStringNoStack(value)
+			c.Str("x11", c.X9, i*8)
+			if i == 0 {
+				elemType = c.String
+			}
+		} else {
+			v.Visit(expr)
+			obj := c.TopObject()
+			if i == 0 {
+				elemType = obj.Type
+			}
+			if obj.Type == c.Float {
+				c.PopObject(c.D0)
+				c.StrF(c.D0, c.X9, i*8)
+			} else {
+				c.PopObject(c.X0)
+				c.Str(c.X0, c.X9, i*8)
+			}
+		}
+	}
+
+    if n == 0 {
+        c.Comment("Slice vacío, no se inicializan elementos")
+        elemType = c.StackObjectType(c.Int) // Por defecto, puedes cambiarlo
+    } else {
+        c.Comment(fmt.Sprintf("Slice inicializado con %d elementos de tipo %s", n, elemType))
+    }
+
+    // Push la dirección base como el slice
+    c.Push(c.X9)
+    c.PushObject(c.SliceObject(elemType, n))
+
+    return nil
+}
+
+func (v *Visitor) VisitSliceAccess(ctx *parser.SliceAccessContext) interface{} {
+    // ID '[' expressionStatement ']'
+    id := ctx.ID().GetText()
+    v.Visit(ctx.ExpressionStatement())
+    c.PopObject(c.X1) // índice
+
+    offset, obj := c.GetObject(id)
+    c.Mov(c.X0, offset)
+    c.Add(c.X0, c.SP, c.X0)
+    c.Ldr(c.X0, c.X0, 0) // x0 = dirección base del slice
+
+    // Calcula la dirección del elemento: base + índice*8
+    c.MovReg(c.X2, c.X1)
+    c.Mov(c.X3, 8)
+    c.Mul(c.X2, c.X2, c.X3)
+    c.Add(c.X0, c.X0, c.X2)
+
+    // --- Aquí el cambio importante ---
+    if obj.ElemType == c.Float {
+        c.LdrF(c.D0, c.X0, 0)
+        c.Push(c.D0)
+        c.PushObject(c.StackObject{
+            Type:     c.Float,
+            Length:   8,
+            Depth:    obj.Depth,
+            Id:       nil,
+            IsSlice:  false,
+            ElemType: c.Float,
+            Size:     1,
+        })
+    } else {
+        c.Ldr(c.X0, c.X0, 0)
+        c.Push(c.X0)
+        c.PushObject(c.StackObject{
+            Type:     obj.ElemType,
+            Length:   8,
+            Depth:    obj.Depth,
+            Id:       nil,
+            IsSlice:  false,
+            ElemType: obj.ElemType,
+            Size:     1,
+        })
+    }
+
+    return nil
+}
+
+func (v *Visitor) VisitSliceAssignment(ctx *parser.SliceAssignmentContext) interface{} {
+    // ID '[' expressionStatement ']' '=' expressionStatement
+    id := ctx.ID().GetText()
+
+    // Evalúa el índice
+    v.Visit(ctx.ExpressionStatement(0))
+    c.PopObject(c.X1) // índice
+
+    // Evalúa el valor a asignar
+    v.Visit(ctx.ExpressionStatement(1))
+    c.PopObject(c.X2) // valor
+
+    // Obtiene la dirección base del slice
+    offset, obj := c.GetObject(id)
+    c.Mov(c.X0, offset)
+    c.Add(c.X0, c.SP, c.X0)
+    c.Ldr(c.X0, c.X0, 0) // x0 = dirección base del slice
+
+    // Calcula la dirección del elemento: base + índice*8
+    c.MovReg(c.X3, c.X1)
+    c.Mov(c.X4, 8)
+    c.Mul(c.X3, c.X3, c.X4)
+    c.Add(c.X0, c.X0, c.X3)
+
+    // Guarda el valor en la posición calculada
+    c.Str(c.X2, c.X0, 0)
+
+    // Push el valor asignado
+    c.Push(c.X2)
+    c.PushObject(c.StackObject{
+        Type:     obj.ElemType,
+        Length:   8,
+        Depth:    obj.Depth,
+        Id:       nil,
+        IsSlice:  false,
+        ElemType: obj.ElemType,
+        Size:     1,
+    })
+
+    return nil
+}
+
+func (v *Visitor) VisitExplicitSliceDeclaration(ctx *parser.ExplicitSliceDeclarationContext) interface{} {
+    varName := ctx.ID().GetText()
+    var elemType c.StackObjectType
+
+    // Determina el tipo declarado
+    switch ctx.TYPE().GetText() {
+    case "int":
+        elemType = c.Int
+    case "string":
+        elemType = c.String
+    case "float64":
+        elemType = c.Float
+    }
+
+    if ctx.ExpressionStatement() != nil {
+        v.Visit(ctx.ExpressionStatement())
+        obj := c.TopObject()
+        // Si el slice es vacío, ajusta el tipo aquí:
+        if obj.IsSlice && obj.Size == 0 {
+            obj.ElemType = elemType
+            obj.Type = elemType
+            c.PopObject(c.X0)
+            c.PushObject(obj)
+        }
+        c.TagObject(varName)
+    } else {
+        // Declaración sin inicialización: crea slice vacío del tipo correcto
+        c.Mov(c.X0, 0) // Dirección nula o como manejes slices vacíos
+        c.Push(c.X0)
+        c.PushObject(c.SliceObject(elemType, 0))
+        c.TagObject(varName)
+    }
+    return nil
 }

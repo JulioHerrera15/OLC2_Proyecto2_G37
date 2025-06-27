@@ -32,10 +32,13 @@ func (s StackObjectType) String() string {
 
 // Estructura StackObject corregida
 type StackObject struct {
-	Type   StackObjectType
-	Length int
-	Depth  int
-	Id     *string
+    Type     StackObjectType
+    Length   int
+    Depth    int
+    Id       *string
+    IsSlice  bool            
+    ElemType StackObjectType  
+    Size     int              
 }
 
 var instructions = []string{}
@@ -64,22 +67,21 @@ func PushConstant(value interface{}, objType StackObject) {
 			floatParts[i] = int16((floatBits >> (i * 16)) & 0xFFFF)
 		}
 		instructions = append(instructions, fmt.Sprintf("movz x0, #%d, lsl #0", floatParts[0]))
-
 		for i := 1; i < 4; i++ {
 			instructions = append(instructions, fmt.Sprintf("movk x0, #%d, lsl #%d", floatParts[i], i*16))
 		}
-
-		Push(X0)
+		instructions = append(instructions, "fmov d0, x0")
+		Push(D0)
 
 
 	case String:
 		var stringArray []byte = StringTo1ByteArray(value.(string))
-		Push(HP)
+		MovReg("x11", HP) // Guarda el inicio del string en x11
 		for i := 0; i < len(stringArray); i++ {
 			var charCode = stringArray[i]
 			Comment(fmt.Sprintf("Pushing char %d to heap - (%c)", charCode, charCode))
 			Mov(W0, int(charCode))
-			StrB(W0, HP) // Guardar el byte en la posición actual del heap
+			StrB(W0, HP)
 			Mov(X0, 1)
 			Add(HP, HP, X0)
 		}
@@ -89,6 +91,9 @@ func PushConstant(value interface{}, objType StackObject) {
 		StrB(W0, HP)
 		Mov(X0, 1)
 		Add(HP, HP, X0)
+		// Ahora pon el puntero real del string en X0
+		MovReg(X0, "x11")
+		Push(X0)
 	case Bool:
 		if value.(bool) {
 			Mov(X0, 1)
@@ -99,6 +104,26 @@ func PushConstant(value interface{}, objType StackObject) {
 	}
 
 	PushObject(objType)
+}
+
+func PushStringNoStack(value string) {
+    var stringArray []byte = StringTo1ByteArray(value)
+    MovReg("x11", HP) // Guarda el inicio del string en x11
+    for i := 0; i < len(stringArray); i++ {
+        var charCode = stringArray[i]
+        Comment(fmt.Sprintf("Pushing char %d to heap - (%c)", charCode, charCode))
+        Mov(W0, int(charCode))
+        StrB(W0, HP)
+        Mov(X0, 1)
+        Add(HP, HP, X0)
+    }
+    // Agregar terminador nulo
+    Comment("Pushing null terminator to heap")
+    Mov(W0, 0)
+    StrB(W0, HP)
+    Mov(X0, 1)
+    Add(HP, HP, X0)
+    // El puntero real del string queda en x11
 }
 
 func PopObject(rd string) StackObject {
@@ -124,13 +149,28 @@ func BoolObject() StackObject {
 	return StackObject{Type: Bool, Length: 8, Depth: depth, Id: nil}
 }
 
+func SliceObject(elemType StackObjectType, size int) StackObject {
+    return StackObject{
+        Type:     elemType,   
+        Length:   8,          
+        Depth:    depth,
+        Id:       nil,
+        IsSlice:  true,
+        ElemType: elemType,
+        Size:     size,
+    }
+}
+
 func CloneObject(obj StackObject) StackObject {
-	return StackObject{
-		Type:   obj.Type,
-		Length: obj.Length,
-		Depth:  obj.Depth,
-		Id:     obj.Id,
-	}
+    return StackObject{
+        Type:     obj.Type,
+        Length:   obj.Length,
+        Depth:    obj.Depth,
+        Id:       obj.Id,
+        IsSlice:  obj.IsSlice,
+        ElemType: obj.ElemType,
+        Size:     obj.Size,
+    }
 }
 
 func NewScope() {
@@ -190,11 +230,11 @@ func UDiv(rd string, rs1 string, rs2 string) {
 }
 
 func Addi(rd string, rs1 string, imm int) {
-	instructions = append(instructions, fmt.Sprintf("addi %s, %s, #%d", rd, rs1, imm))
+	instructions = append(instructions, fmt.Sprintf("add %s, %s, #%d", rd, rs1, imm))
 }
 
 func Subi(rd string, rs1 string, imm int) {
-	instructions = append(instructions, fmt.Sprintf("subi %s, %s, #%d", rd, rs1, imm))
+	instructions = append(instructions, fmt.Sprintf("sub %s, %s, #%d", rd, rs1, imm))
 }
 
 func Neg(rd string, rs string) {
@@ -222,6 +262,14 @@ func Cset(rd string, condition string) {
 
 func Str(rs1 string, rs2 string, offset int) {
 	instructions = append(instructions, fmt.Sprintf("str %s, [%s, #%d]", rs1, rs2, offset))
+}
+
+func StrF(rd string, base string, offset int) {
+    instructions = append(instructions, fmt.Sprintf("str %s, [%s, #%d]", rd, base, offset))
+}
+
+func LdrF(rd string, base string, offset int) {
+    instructions = append(instructions, fmt.Sprintf("ldr %s, [%s, #%d]", rd, base, offset))
 }
 
 func StrB(rs1 string, rs2 string) {
@@ -311,6 +359,32 @@ func PrintString(rs string) {
 	Use("print_string")
 }
 
+func PrintChar(char rune) {
+    label := fmt.Sprintf("char_%d", int(char))
+    instructions = append(instructions, fmt.Sprintf("adr x1, %s", label)) // x1 = dirección del carácter
+    instructions = append(instructions, "mov x0, #1") // x0 = stdout
+    instructions = append(instructions, "mov x2, #1") // x2 = longitud
+    instructions = append(instructions, "mov x8, #64")
+    instructions = append(instructions, "svc #0")
+    usedSymbols[label] = true
+}
+
+func PrintIntInline(rs string) {
+    if rs != X0 {
+        MovReg(X0, rs)
+    }
+    instructions = append(instructions, "bl print_integer_inline")
+    Use("print_integer_inline")
+}
+
+func PrintFloatInline(rs string) {
+    if rs != D0 {
+        FMov(D0, rs) // fmov d0, rs
+    }
+    instructions = append(instructions, "bl print_double_inline")
+    Use("print_double_inline")
+}
+
 func Comment(comment string) {
 	instructions = append(instructions, fmt.Sprintf("# %s", comment))
 }
@@ -335,6 +409,13 @@ func ToString() string {
     }
     if usedSymbols["double_newline"] {
         sb.WriteString("double_newline: .ascii \"\\n\"\n")
+    }
+    // Agregar los caracteres individuales usados por PrintChar
+    for symbol := range usedSymbols {
+        if strings.HasPrefix(symbol, "char_") {
+            charCode := strings.TrimPrefix(symbol, "char_")
+            sb.WriteString(fmt.Sprintf("%s: .byte %s\n", symbol, charCode))
+        }
     }
 
     sb.WriteString(".text\n")
