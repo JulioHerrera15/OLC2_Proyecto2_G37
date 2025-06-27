@@ -438,4 +438,5 @@ var Symbols = map[string]string{
     "zero_char":     `.ascii "0"`,
     "newline":       `.ascii "\n"`,
     "double_newline": `.ascii "\n"`,
+    "atoi_error_msg":  `.ascii "Error: entrada inválida en Atoi\n"`,  // <- ¡Este debe estar!
 }

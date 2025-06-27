@@ -504,29 +504,27 @@ func (v *Visitor) VisitBlockStatement(ctx *parser.BlockStatementContext) interfa
 }
 
 //---------------------------------------------------------------------------------------
-
 func (v *Visitor) VisitFunctionCall(ctx *parser.FunctionCallContext) interface{} {
-	functionName := ctx.ID().GetText()
+	functionName := strings.ToLower(ctx.ID().GetText())
 
-	if functionName == "Atoi" {
+	if functionName == "atoi" {
 		if ctx.ArgumentList() == nil || len(ctx.ArgumentList().AllExpressionStatement()) != 1 {
-			log.Fatalf("Atoi espera 1 argumento.")
+			log.Fatalf("atoi espera 1 argumento.")
 		}
 
 		v.Visit(ctx.ArgumentList().ExpressionStatement(0))
 		arg := c.PopObject(c.X0)
 
 		if arg.Type != c.StackObjectType(c.String) {
-			log.Fatalf("Atoi espera un argumento de tipo string.")
+			log.Fatalf("atoi espera un argumento de tipo string.")
 		}
 
-		c.Comment("Llamada a Atoi")
+		c.Comment("Llamada a atoi")
 		c.MovReg(c.X0, c.X0)
+		c.Use("atoi")
 		c.Bl("atoi")
-		c.Push(c.X0)
 		c.PushObject(c.IntObject())
-
-		c.Use("atoi") // <<< IMPORTANTE para que se incluya en el binario final
+		c.Push(c.X0)
 		return nil
 	}
 
