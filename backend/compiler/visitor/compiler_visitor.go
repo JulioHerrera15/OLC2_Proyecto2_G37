@@ -3,10 +3,11 @@ package visitor
 import (
 	c "backend/compiler/arm"
 	parser "backend/parser"
+	"fmt"
 	"log"
 	"strconv"
 	"strings"
-	"fmt"
+
 	"github.com/antlr4-go/antlr/v4"
 )
 
@@ -92,7 +93,7 @@ func (v *Visitor) VisitFloat(ctx *parser.FloatContext) interface{} {
 
 	var floatObject = c.FloatObject()
 	c.PushConstant(floatValue, floatObject)
-	
+
 	return nil
 }
 
@@ -161,8 +162,12 @@ func (v *Visitor) VisitAddSub(ctx *parser.AddSubContext) interface{} {
 	// o de entero con flotante, etc.
 
 	if isLeftDouble || isRightDouble {
-		if !isLeftDouble {c.Scvtf(c.D1, c.X1)}
-		if !isRightDouble {c.Scvtf(c.D0, c.X0)}
+		if !isLeftDouble {
+			c.Scvtf(c.D1, c.X1)
+		}
+		if !isRightDouble {
+			c.Scvtf(c.D0, c.X0)
+		}
 
 		switch op {
 		case "+":
@@ -174,7 +179,7 @@ func (v *Visitor) VisitAddSub(ctx *parser.AddSubContext) interface{} {
 		}
 
 		c.Comment("Pushing result of double operation")
-		c.Push(c.D0) // Push the result of the double operation
+		c.Push(c.D0)                      // Push the result of the double operation
 		c.PushObject(c.CloneObject(left)) // Push the left operand object to the stack
 
 		return nil
@@ -290,20 +295,20 @@ func (v *Visitor) VisitParens(ctx *parser.ParensContext) interface{} {
 }
 
 func (v *Visitor) VisitPrintStatement(ctx *parser.PrintStatementContext) interface{} {
-    c.Comment("Print statement")
+	c.Comment("Print statement")
 
-    expressions := ctx.AllExpressionStatement()
-    n := len(expressions)
+	expressions := ctx.AllExpressionStatement()
+	n := len(expressions)
 
-    for i, expr := range expressions {
-        v.Visit(expr)
-        obj := c.TopObject()
+	for i, expr := range expressions {
+		v.Visit(expr)
+		obj := c.TopObject()
 
-        // Si es slice, imprime todos los elementos
+		// Si es slice, imprime todos los elementos
 		if obj.IsSlice {
 			c.Comment("Entrando a impresión de slice")
-			c.Pop(c.X9)           // Pop real: dirección base del slice
-			c.PopObject(c.X0)     // Pop virtual: objeto del slice
+			c.Pop(c.X9)       // Pop real: dirección base del slice
+			c.PopObject(c.X0) // Pop virtual: objeto del slice
 			length := obj.Size
 			elemType := obj.ElemType
 
@@ -332,34 +337,34 @@ func (v *Visitor) VisitPrintStatement(ctx *parser.PrintStatementContext) interfa
 			if i == n-1 {
 				c.PrintChar('\n')
 			}
-        } else {
-            // Comportamiento original para no-slices
-            isDouble := obj.Type == c.StackObjectType(c.Float)
-            var reg string
-            if isDouble {
-                reg = c.D0
-            } else {
-                reg = c.X0
-            }
-            value := c.PopObject(reg)
+		} else {
+			// Comportamiento original para no-slices
+			isDouble := obj.Type == c.StackObjectType(c.Float)
+			var reg string
+			if isDouble {
+				reg = c.D0
+			} else {
+				reg = c.X0
+			}
+			value := c.PopObject(reg)
 
-            if value.Type == c.StackObjectType(c.Int) {
-                c.PrintInt(c.X0)
-            } else if value.Type == c.StackObjectType(c.String) {
-                if i == n-1 {
-                    c.PrintString(c.X0)
-                } else {
-                    c.PrintStringInline(c.X0)
-                }
-            } else if value.Type == c.StackObjectType(c.Bool) {
-                c.PrintInt(c.X0)
-            } else if value.Type == c.StackObjectType(c.Float) {
-                c.PrintFloat()
-            }
-        }
-    }
+			if value.Type == c.StackObjectType(c.Int) {
+				c.PrintInt(c.X0)
+			} else if value.Type == c.StackObjectType(c.String) {
+				if i == n-1 {
+					c.PrintString(c.X0)
+				} else {
+					c.PrintStringInline(c.X0)
+				}
+			} else if value.Type == c.StackObjectType(c.Bool) {
+				c.PrintInt(c.X0)
+			} else if value.Type == c.StackObjectType(c.Float) {
+				c.PrintFloat()
+			}
+		}
+	}
 
-    return nil
+	return nil
 }
 
 func (v *Visitor) VisitAnd(ctx *parser.AndContext) interface{} {
@@ -485,47 +490,47 @@ func (v *Visitor) VisitExplicitDeclaration(ctx *parser.ExplicitDeclarationContex
 }
 
 func (v *Visitor) VisitImplicitDeclaration(ctx *parser.ImplicitDeclarationContext) interface{} {
-    var varName string = ctx.ID().GetText()
+	var varName string = ctx.ID().GetText()
 
-    // Evalúa la expresión y deja el resultado en la pila real y virtual
-    v.Visit(ctx.ExpressionStatement())
+	// Evalúa la expresión y deja el resultado en la pila real y virtual
+	v.Visit(ctx.ExpressionStatement())
 
-    // Etiqueta el objeto en la pila virtual con el nombre de la variable
-    c.TagObject(varName)
+	// Etiqueta el objeto en la pila virtual con el nombre de la variable
+	c.TagObject(varName)
 
-    return nil
+	return nil
 }
 
 func (v *Visitor) VisitImplicitSliceDeclaration(ctx *parser.ImplicitSliceDeclarationContext) interface{} {
-    varName := ctx.ID().GetText()
-    var elemType c.StackObjectType
+	varName := ctx.ID().GetText()
+	var elemType c.StackObjectType
 
-    // Determina el tipo declarado
-    switch ctx.TYPE().GetText() {
-    case "int":
-        elemType = c.Int
-    case "string":
-        elemType = c.String
-    case "float64":
-        elemType = c.Float
-    }
+	// Determina el tipo declarado
+	switch ctx.TYPE().GetText() {
+	case "int":
+		elemType = c.Int
+	case "string":
+		elemType = c.String
+	case "float64":
+		elemType = c.Float
+	}
 
-    // Visita los elementos del slice
-    v.Visit(ctx.SliceElements())
+	// Visita los elementos del slice
+	v.Visit(ctx.SliceElements())
 
-    // Ajusta el tipo del slice si es necesario (por ejemplo, si está vacío)
-    obj := c.TopObject()
-    if obj.IsSlice && obj.Size == 0 {
-        obj.ElemType = elemType
-        obj.Type = elemType
-        c.PopObject(c.X0)
-        c.PushObject(obj)
-    }
+	// Ajusta el tipo del slice si es necesario (por ejemplo, si está vacío)
+	obj := c.TopObject()
+	if obj.IsSlice && obj.Size == 0 {
+		obj.ElemType = elemType
+		obj.Type = elemType
+		c.PopObject(c.X0)
+		c.PushObject(obj)
+	}
 
-    // Etiqueta el objeto en la pila virtual con el nombre de la variable
-    c.TagObject(varName)
+	// Etiqueta el objeto en la pila virtual con el nombre de la variable
+	c.TagObject(varName)
 
-    return nil
+	return nil
 }
 
 func (v *Visitor) VisitAssignment(ctx *parser.AssignmentContext) interface{} {
@@ -584,347 +589,359 @@ func (v *Visitor) VisitBlockStatement(ctx *parser.BlockStatementContext) interfa
 	return nil
 }
 
-//---------------------------------------------------------------------------------------
+// ---------------------------------------------ATOI------------------------------------------
+
 func (v *Visitor) VisitFunctionCall(ctx *parser.FunctionCallContext) interface{} {
-	functionName := strings.ToLower(ctx.ID().GetText())
-
-	if functionName == "atoi" {
-		if ctx.ArgumentList() == nil || len(ctx.ArgumentList().AllExpressionStatement()) != 1 {
-			log.Fatalf("atoi espera 1 argumento.")
+	fnName := ctx.ID().GetText()
+	args := []antlr.ParseTree{}
+	if ctx.ArgumentList() != nil {
+		for _, expr := range ctx.ArgumentList().AllExpressionStatement() {
+			args = append(args, expr.(antlr.ParseTree))
 		}
-
-		v.Visit(ctx.ArgumentList().ExpressionStatement(0))
-		arg := c.PopObject(c.X0)
-
-		if arg.Type != c.StackObjectType(c.String) {
-			log.Fatalf("atoi espera un argumento de tipo string.")
-		}
-
-		c.Comment("Llamada a atoi")
-		c.MovReg(c.X0, c.X0)
-		c.Use("atoi")
-		c.Bl("atoi")
-		c.PushObject(c.IntObject())
-		c.Push(c.X0)
-		return nil
 	}
 
-	log.Fatalf("Función no reconocida: %s", functionName)
+	if fnName == "atoi" {
+		if len(args) != 1 {
+			log.Fatal("atoi requiere exactamente un argumento")
+		}
+
+		// Evaluar el argumento (esto coloca el string en la pila)
+		v.Visit(args[0])
+
+		// Obtener el string de la pila
+		arg := c.PopObject(c.X0)
+		if arg.Type != c.String {
+			log.Fatal("atoi solo acepta strings como argumento")
+		}
+
+		c.UsedFunction("atoi")
+		c.Comment("Llamando a función atoi")
+		c.Call("atoi")
+		c.Comment("Valor en x0 tras atoi (debe ser entero válido)")
+
+		// IMPORTANTE: Empujar TANTO al stack de registros COMO al stack virtual
+		c.Push(c.X0)                // Para el stack de registros
+		c.PushObject(c.IntObject()) // Para el stack virtual (esto es lo que faltaba)
+
+		return nil
+	}
 	return nil
 }
 
+//---------------------------------------------------------------------------------------
+
 func (v *Visitor) VisitSliceLiteral(ctx *parser.SliceLiteralContext) interface{} {
-    exprs := ctx.AllExpressionStatement()
-    n := len(exprs)
+	exprs := ctx.AllExpressionStatement()
+	n := len(exprs)
 
-    c.Comment(fmt.Sprintf("Slice literal con %d elementos", n))
+	c.Comment(fmt.Sprintf("Slice literal con %d elementos", n))
 
-    // Reserva espacio para el slice en el heap y avanza el heap pointer
-    c.MovReg(c.X9, c.HP) // x9 = base del slice
-    if n > 0 {
-        c.Addi(c.HP, c.HP, n*8) // Avanza el heap pointer para NO pisar el slice
-    }
+	// Reserva espacio para el slice en el heap y avanza el heap pointer
+	c.MovReg(c.X9, c.HP) // x9 = base del slice
+	if n > 0 {
+		c.Addi(c.HP, c.HP, n*8) // Avanza el heap pointer para NO pisar el slice
+	}
 
-    var elemType c.StackObjectType
+	var elemType c.StackObjectType
 
-    for i, expr := range exprs {
-        // Detecta si el elemento es un string
-        if strCtx, ok := expr.(*parser.StringContext); ok {
-            value := strCtx.GetText()
-            value = strings.Trim(value, `"`)
-            c.Comment("Constant String (slice): " + value)
-            c.PushStringNoStack(value)
-            c.Str("x11", c.X9, i*8)
-            if i == 0 {
-                elemType = c.String
-            }
-        } else {
-            v.Visit(expr)
-            obj := c.TopObject()
-            if i == 0 {
-                elemType = obj.Type
-            }
-            if obj.Type == c.Float {
-                c.PopObject(c.D0)
-                c.StrF(c.D0, c.X9, i*8)
-            } else {
-                c.PopObject(c.X0)
-                c.Str(c.X0, c.X9, i*8)
-            }
-        }
-    }
+	for i, expr := range exprs {
+		// Detecta si el elemento es un string
+		if strCtx, ok := expr.(*parser.StringContext); ok {
+			value := strCtx.GetText()
+			value = strings.Trim(value, `"`)
+			c.Comment("Constant String (slice): " + value)
+			c.PushStringNoStack(value)
+			c.Str("x11", c.X9, i*8)
+			if i == 0 {
+				elemType = c.String
+			}
+		} else {
+			v.Visit(expr)
+			obj := c.TopObject()
+			if i == 0 {
+				elemType = obj.Type
+			}
+			if obj.Type == c.Float {
+				c.PopObject(c.D0)
+				c.StrF(c.D0, c.X9, i*8)
+			} else {
+				c.PopObject(c.X0)
+				c.Str(c.X0, c.X9, i*8)
+			}
+		}
+	}
 
-    if n == 0 {
-        c.Comment("Slice vacío, no se inicializan elementos")
-        elemType = c.StackObjectType(c.Int) // Por defecto, puedes cambiarlo
-    } else {
-        c.Comment(fmt.Sprintf("Slice inicializado con %d elementos de tipo %s", n, elemType))
-    }
+	if n == 0 {
+		c.Comment("Slice vacío, no se inicializan elementos")
+		elemType = c.StackObjectType(c.Int) // Por defecto, puedes cambiarlo
+	} else {
+		c.Comment(fmt.Sprintf("Slice inicializado con %d elementos de tipo %s", n, elemType))
+	}
 
-    // Push la dirección base como el slice
-    c.Push(c.X9)
-    c.PushObject(c.SliceObject(elemType, n))
+	// Push la dirección base como el slice
+	c.Push(c.X9)
+	c.PushObject(c.SliceObject(elemType, n))
 
-    return nil
+	return nil
 }
 
 func (v *Visitor) VisitSliceElements(ctx *parser.SliceElementsContext) interface{} {
-    exprs := ctx.AllExpressionStatement()
-    n := len(exprs)
+	exprs := ctx.AllExpressionStatement()
+	n := len(exprs)
 
-    c.Comment(fmt.Sprintf("Slice literal con %d elementos", n))
+	c.Comment(fmt.Sprintf("Slice literal con %d elementos", n))
 
-    // Reserva espacio para el slice en el heap y avanza el heap pointer
-    c.MovReg(c.X9, c.HP) // x9 = base del slice
-    if n > 0 {
-        c.Addi(c.HP, c.HP, n*8) // Avanza el heap pointer para NO pisar el slice
-    }
+	// Reserva espacio para el slice en el heap y avanza el heap pointer
+	c.MovReg(c.X9, c.HP) // x9 = base del slice
+	if n > 0 {
+		c.Addi(c.HP, c.HP, n*8) // Avanza el heap pointer para NO pisar el slice
+	}
 
-    var elemType c.StackObjectType
+	var elemType c.StackObjectType
 
-    for i, expr := range exprs {
-        v.Visit(expr)
-        obj := c.TopObject()
-        if i == 0 {
-            elemType = obj.Type
-        }
-        switch obj.Type {
+	for i, expr := range exprs {
+		v.Visit(expr)
+		obj := c.TopObject()
+		if i == 0 {
+			elemType = obj.Type
+		}
+		switch obj.Type {
 		case c.Float:
 			c.PopObject(c.D0)
 			c.StrF(c.D0, c.X9, i*8)
-        case c.String:
-            c.PopObject(c.X0)
-            c.Str(c.X0, c.X9, i*8)
-        default:
-            c.PopObject(c.X0)
-            c.Str(c.X0, c.X9, i*8)
-        }
-    }
+		case c.String:
+			c.PopObject(c.X0)
+			c.Str(c.X0, c.X9, i*8)
+		default:
+			c.PopObject(c.X0)
+			c.Str(c.X0, c.X9, i*8)
+		}
+	}
 
-    if n == 0 {
-        c.Comment("Slice vacío, no se inicializan elementos")
-        elemType = c.StackObjectType(c.Int) // Por defecto, puedes cambiarlo
-    } else {
-        c.Comment(fmt.Sprintf("Slice inicializado con %d elementos de tipo %s", n, elemType))
-    }
+	if n == 0 {
+		c.Comment("Slice vacío, no se inicializan elementos")
+		elemType = c.StackObjectType(c.Int) // Por defecto, puedes cambiarlo
+	} else {
+		c.Comment(fmt.Sprintf("Slice inicializado con %d elementos de tipo %s", n, elemType))
+	}
 
-    // Push la dirección base como el slice
-    c.Push(c.X9)
-    c.PushObject(c.SliceObject(elemType, n))
+	// Push la dirección base como el slice
+	c.Push(c.X9)
+	c.PushObject(c.SliceObject(elemType, n))
 
-    return nil
+	return nil
 }
 
 func (v *Visitor) VisitSliceAccess(ctx *parser.SliceAccessContext) interface{} {
-    // ID '[' expressionStatement ']'
-    id := ctx.ID().GetText()
-    v.Visit(ctx.ExpressionStatement())
-    c.PopObject(c.X1) // índice
+	// ID '[' expressionStatement ']'
+	id := ctx.ID().GetText()
+	v.Visit(ctx.ExpressionStatement())
+	c.PopObject(c.X1) // índice
 
-    offset, obj := c.GetObject(id)
-    c.Mov(c.X0, offset)
-    c.Add(c.X0, c.SP, c.X0)
-    c.Ldr(c.X0, c.X0, 0) // x0 = dirección base del slice
+	offset, obj := c.GetObject(id)
+	c.Mov(c.X0, offset)
+	c.Add(c.X0, c.SP, c.X0)
+	c.Ldr(c.X0, c.X0, 0) // x0 = dirección base del slice
 
-    // Calcula la dirección del elemento: base + índice*8
-    c.MovReg(c.X2, c.X1)
-    c.Mov(c.X3, 8)
-    c.Mul(c.X2, c.X2, c.X3)
-    c.Add(c.X0, c.X0, c.X2)
+	// Calcula la dirección del elemento: base + índice*8
+	c.MovReg(c.X2, c.X1)
+	c.Mov(c.X3, 8)
+	c.Mul(c.X2, c.X2, c.X3)
+	c.Add(c.X0, c.X0, c.X2)
 
-    if obj.ElemType == c.Float {
-        c.LdrF(c.D0, c.X0, 0)
-        c.Push(c.D0)
-        c.PushObject(c.StackObject{
-            Type:     c.Float,
-            Length:   8,
-            Depth:    obj.Depth,
-            Id:       nil,
-            IsSlice:  false,
-            ElemType: c.Float,
-            Size:     1,
-        })
-    } else {
-        c.Ldr(c.X0, c.X0, 0)
-        c.Push(c.X0)
-        c.PushObject(c.StackObject{
-            Type:     obj.ElemType,
-            Length:   8,
-            Depth:    obj.Depth,
-            Id:       nil,
-            IsSlice:  false,
-            ElemType: obj.ElemType,
-            Size:     1,
-        })
-    }
+	if obj.ElemType == c.Float {
+		c.LdrF(c.D0, c.X0, 0)
+		c.Push(c.D0)
+		c.PushObject(c.StackObject{
+			Type:     c.Float,
+			Length:   8,
+			Depth:    obj.Depth,
+			Id:       nil,
+			IsSlice:  false,
+			ElemType: c.Float,
+			Size:     1,
+		})
+	} else {
+		c.Ldr(c.X0, c.X0, 0)
+		c.Push(c.X0)
+		c.PushObject(c.StackObject{
+			Type:     obj.ElemType,
+			Length:   8,
+			Depth:    obj.Depth,
+			Id:       nil,
+			IsSlice:  false,
+			ElemType: obj.ElemType,
+			Size:     1,
+		})
+	}
 
-    return nil
+	return nil
 }
 
 func (v *Visitor) VisitSliceAssignment(ctx *parser.SliceAssignmentContext) interface{} {
-    // ID '[' expressionStatement ']' '=' expressionStatement
-    id := ctx.ID().GetText()
+	// ID '[' expressionStatement ']' '=' expressionStatement
+	id := ctx.ID().GetText()
 
-    // Evalúa el índice
-    v.Visit(ctx.ExpressionStatement(0))
-    c.PopObject(c.X1) // índice
+	// Evalúa el índice
+	v.Visit(ctx.ExpressionStatement(0))
+	c.PopObject(c.X1) // índice
 
-    // Evalúa el valor a asignar
-    v.Visit(ctx.ExpressionStatement(1))
-    c.PopObject(c.X2) // valor
+	// Evalúa el valor a asignar
+	v.Visit(ctx.ExpressionStatement(1))
+	c.PopObject(c.X2) // valor
 
-    // Obtiene la dirección base del slice
-    offset, obj := c.GetObject(id)
-    c.Mov(c.X0, offset)
-    c.Add(c.X0, c.SP, c.X0)
-    c.Ldr(c.X0, c.X0, 0) // x0 = dirección base del slice
+	// Obtiene la dirección base del slice
+	offset, obj := c.GetObject(id)
+	c.Mov(c.X0, offset)
+	c.Add(c.X0, c.SP, c.X0)
+	c.Ldr(c.X0, c.X0, 0) // x0 = dirección base del slice
 
-    // Calcula la dirección del elemento: base + índice*8
-    c.MovReg(c.X3, c.X1)
-    c.Mov(c.X4, 8)
-    c.Mul(c.X3, c.X3, c.X4)
-    c.Add(c.X0, c.X0, c.X3)
+	// Calcula la dirección del elemento: base + índice*8
+	c.MovReg(c.X3, c.X1)
+	c.Mov(c.X4, 8)
+	c.Mul(c.X3, c.X3, c.X4)
+	c.Add(c.X0, c.X0, c.X3)
 
-    // Guarda el valor en la posición calculada
-    c.Str(c.X2, c.X0, 0)
+	// Guarda el valor en la posición calculada
+	c.Str(c.X2, c.X0, 0)
 
-    // Push el valor asignado
-    c.Push(c.X2)
-    c.PushObject(c.StackObject{
-        Type:     obj.ElemType,
-        Length:   8,
-        Depth:    obj.Depth,
-        Id:       nil,
-        IsSlice:  false,
-        ElemType: obj.ElemType,
-        Size:     1,
-    })
+	// Push el valor asignado
+	c.Push(c.X2)
+	c.PushObject(c.StackObject{
+		Type:     obj.ElemType,
+		Length:   8,
+		Depth:    obj.Depth,
+		Id:       nil,
+		IsSlice:  false,
+		ElemType: obj.ElemType,
+		Size:     1,
+	})
 
-    return nil
+	return nil
 }
 
 func (v *Visitor) VisitExplicitSliceDeclaration(ctx *parser.ExplicitSliceDeclarationContext) interface{} {
-    varName := ctx.ID().GetText()
-    var elemType c.StackObjectType
+	varName := ctx.ID().GetText()
+	var elemType c.StackObjectType
 
-    // Determina el tipo declarado
-    switch ctx.TYPE().GetText() {
-    case "int":
-        elemType = c.Int
-    case "string":
-        elemType = c.String
-    case "float64":
-        elemType = c.Float
-    }
+	// Determina el tipo declarado
+	switch ctx.TYPE().GetText() {
+	case "int":
+		elemType = c.Int
+	case "string":
+		elemType = c.String
+	case "float64":
+		elemType = c.Float
+	}
 
-    if ctx.ExpressionStatement() != nil {
-        v.Visit(ctx.ExpressionStatement())
-        obj := c.TopObject()
-        // Si el slice es vacío, ajusta el tipo aquí:
-        if obj.IsSlice && obj.Size == 0 {
-            obj.ElemType = elemType
-            obj.Type = elemType
-            c.PopObject(c.X0)
-            c.PushObject(obj)
-        }
-        c.TagObject(varName)
-    } else {
-        // Declaración sin inicialización: crea slice vacío del tipo correcto
-        c.Mov(c.X0, 0) // Dirección nula o como manejes slices vacíos
-        c.Push(c.X0)
-        c.PushObject(c.SliceObject(elemType, 0))
-        c.TagObject(varName)
-    }
-    return nil
+	if ctx.ExpressionStatement() != nil {
+		v.Visit(ctx.ExpressionStatement())
+		obj := c.TopObject()
+		// Si el slice es vacío, ajusta el tipo aquí:
+		if obj.IsSlice && obj.Size == 0 {
+			obj.ElemType = elemType
+			obj.Type = elemType
+			c.PopObject(c.X0)
+			c.PushObject(obj)
+		}
+		c.TagObject(varName)
+	} else {
+		// Declaración sin inicialización: crea slice vacío del tipo correcto
+		c.Mov(c.X0, 0) // Dirección nula o como manejes slices vacíos
+		c.Push(c.X0)
+		c.PushObject(c.SliceObject(elemType, 0))
+		c.TagObject(varName)
+	}
+	return nil
 }
 
 func (v *Visitor) VisitIfStatement(ctx *parser.IfStatementContext) interface{} {
-    c.Comment("If statement")
+	c.Comment("If statement")
 
-    labelElse := fmt.Sprintf("else_%p", ctx)
-    labelEnd := fmt.Sprintf("endif_%p", ctx)
+	labelElse := fmt.Sprintf("else_%p", ctx)
+	labelEnd := fmt.Sprintf("endif_%p", ctx)
 
-    // 1. Evalúa la condición (hijo 1)
-    v.Visit(ctx.ExpressionStatement())
+	// 1. Evalúa la condición (hijo 1)
+	v.Visit(ctx.ExpressionStatement())
 
-    c.PopObject(c.X0)
-    c.CmpImm(c.X0, 0)
-    c.BranchEq(labelElse)
+	c.PopObject(c.X0)
+	c.CmpImm(c.X0, 0)
+	c.BranchEq(labelElse)
 
-    // 2. Bloque del if (hijo 2)
-    v.Visit(ctx.BlockStatement(0))
+	// 2. Bloque del if (hijo 2)
+	v.Visit(ctx.BlockStatement(0))
 
-    c.Branch(labelEnd)
+	c.Branch(labelEnd)
 
-    // 3. Else (si existe)
-    c.Label(labelElse)
-    // Si hay al menos 1 hijo más después del bloque if
-    if ctx.GetChildCount() > 3 {
-        // El hijo 3 es 'else', el hijo 4 es ifStatement o blockStatement
-        elseNode := ctx.GetChild(4)
-        if elseIfCtx, ok := elseNode.(*parser.IfStatementContext); ok {
-            v.Visit(elseIfCtx)
-        } else if blockCtx, ok := elseNode.(*parser.BlockStatementContext); ok {
-            v.Visit(blockCtx)
-        }
-    }
-    c.Label(labelEnd)
+	// 3. Else (si existe)
+	c.Label(labelElse)
+	// Si hay al menos 1 hijo más después del bloque if
+	if ctx.GetChildCount() > 3 {
+		// El hijo 3 es 'else', el hijo 4 es ifStatement o blockStatement
+		elseNode := ctx.GetChild(4)
+		if elseIfCtx, ok := elseNode.(*parser.IfStatementContext); ok {
+			v.Visit(elseIfCtx)
+		} else if blockCtx, ok := elseNode.(*parser.BlockStatementContext); ok {
+			v.Visit(blockCtx)
+		}
+	}
+	c.Label(labelEnd)
 
-    return nil
+	return nil
 }
 
 func (v *Visitor) VisitSwitchStatement(ctx *parser.SwitchStatementContext) interface{} {
-    c.Comment("Switch statement")
+	c.Comment("Switch statement")
 
-    // 1. Evalúa el valor del switch (ID)
-    id := ctx.ID().GetText()
-    offset, _ := c.GetObject(id)
-    c.Mov(c.X0, offset)
-    c.Add(c.X0, c.SP, c.X0)
-    c.Ldr(c.X0, c.X0, 0) // x0 = valor del switch
+	// 1. Evalúa el valor del switch (ID)
+	id := ctx.ID().GetText()
+	offset, _ := c.GetObject(id)
+	c.Mov(c.X0, offset)
+	c.Add(c.X0, c.SP, c.X0)
+	c.Ldr(c.X0, c.X0, 0) // x0 = valor del switch
 
-    // 2. Prepara labels
-    nCases := len(ctx.AllSwitchCase())
-    labelEnd := fmt.Sprintf("end_switch_%p", ctx)
-    labelDefault := fmt.Sprintf("default_%p", ctx)
-    caseLabels := make([]string, nCases)
-    for i := range caseLabels {
-        caseLabels[i] = fmt.Sprintf("case_%d_%p", i, ctx)
-    }
+	// 2. Prepara labels
+	nCases := len(ctx.AllSwitchCase())
+	labelEnd := fmt.Sprintf("end_switch_%p", ctx)
+	labelDefault := fmt.Sprintf("default_%p", ctx)
+	caseLabels := make([]string, nCases)
+	for i := range caseLabels {
+		caseLabels[i] = fmt.Sprintf("case_%d_%p", i, ctx)
+	}
 
-    // 3. Compara con cada case
-    c.MovReg("x2", "x0") // Guarda el valor del switch en x2
-    for i, caseCtx := range ctx.AllSwitchCase() {
-        v.Visit(caseCtx.ExpressionStatement())
-        c.PopObject(c.X1) // valor del case en x1
-        c.Cmp("x2", "x1") // compara el valor original del switch con el del case
-        c.BranchEq(caseLabels[i])
-    }
-    // Si no hay match, salta a default (si existe) o al final
-    if ctx.DefaultCase() != nil {
-        c.Branch(labelDefault)
-    } else {
-        c.Branch(labelEnd)
-    }
+	// 3. Compara con cada case
+	c.MovReg("x2", "x0") // Guarda el valor del switch en x2
+	for i, caseCtx := range ctx.AllSwitchCase() {
+		v.Visit(caseCtx.ExpressionStatement())
+		c.PopObject(c.X1) // valor del case en x1
+		c.Cmp("x2", "x1") // compara el valor original del switch con el del case
+		c.BranchEq(caseLabels[i])
+	}
+	// Si no hay match, salta a default (si existe) o al final
+	if ctx.DefaultCase() != nil {
+		c.Branch(labelDefault)
+	} else {
+		c.Branch(labelEnd)
+	}
 
-    // 4. Genera el código de cada case
-    for i, caseCtx := range ctx.AllSwitchCase() {
-        c.Label(caseLabels[i])
-        for _, stmt := range caseCtx.AllStatement() {
-            v.Visit(stmt)
-        }
-        c.Branch(labelEnd)
-    }
+	// 4. Genera el código de cada case
+	for i, caseCtx := range ctx.AllSwitchCase() {
+		c.Label(caseLabels[i])
+		for _, stmt := range caseCtx.AllStatement() {
+			v.Visit(stmt)
+		}
+		c.Branch(labelEnd)
+	}
 
-    // 5. Default case (si existe)
-    if ctx.DefaultCase() != nil {
-        c.Label(labelDefault)
-        for _, stmt := range ctx.DefaultCase().AllStatement() {
-            v.Visit(stmt)
-        }
-    }
+	// 5. Default case (si existe)
+	if ctx.DefaultCase() != nil {
+		c.Label(labelDefault)
+		for _, stmt := range ctx.DefaultCase().AllStatement() {
+			v.Visit(stmt)
+		}
+	}
 
-    // 6. Fin del switch
-    c.Label(labelEnd)
-    return nil
+	// 6. Fin del switch
+	c.Label(labelEnd)
+	return nil
 }

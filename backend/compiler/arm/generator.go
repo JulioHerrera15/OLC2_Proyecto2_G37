@@ -2,6 +2,7 @@ package arm
 
 import (
 	"fmt"
+	"log"
 	"math"
 	"strings"
 )
@@ -32,13 +33,13 @@ func (s StackObjectType) String() string {
 
 // Estructura StackObject corregida
 type StackObject struct {
-    Type     StackObjectType
-    Length   int
-    Depth    int
-    Id       *string
-    IsSlice  bool            
-    ElemType StackObjectType  
-    Size     int              
+	Type     StackObjectType
+	Length   int
+	Depth    int
+	Id       *string
+	IsSlice  bool
+	ElemType StackObjectType
+	Size     int
 }
 
 var instructions = []string{}
@@ -49,8 +50,8 @@ func TopObject() StackObject {
 	return stack[len(stack)-1]
 }
 
-
 func PushObject(obj StackObject) {
+	obj.Depth = depth // Asignar la profundidad actual
 	stack = append(stack, obj)
 }
 
@@ -72,7 +73,6 @@ func PushConstant(value interface{}, objType StackObject) {
 		}
 		instructions = append(instructions, "fmov d0, x0")
 		Push(D0)
-
 
 	case String:
 		var stringArray []byte = StringTo1ByteArray(value.(string))
@@ -107,22 +107,22 @@ func PushConstant(value interface{}, objType StackObject) {
 }
 
 func PushStringNoStack(value string) {
-    var stringArray []byte = StringTo1ByteArray(value)
-    MovReg("x11", HP) // Guarda el inicio del string en x11
-    for i := 0; i < len(stringArray); i++ {
-        var charCode = stringArray[i]
-        Comment(fmt.Sprintf("Pushing char %d to heap - (%c)", charCode, charCode))
-        Mov(W0, int(charCode))
-        StrB(W0, HP)
-        Mov(X0, 1)
-        Add(HP, HP, X0)
-    }
-    // Agregar terminador nulo
-    Comment("Pushing null terminator to heap")
-    Mov(W0, 0)
-    StrB(W0, HP)
-    Mov(X0, 1)
-    Add(HP, HP, X0)
+	var stringArray []byte = StringTo1ByteArray(value)
+	MovReg("x11", HP) // Guarda el inicio del string en x11
+	for i := 0; i < len(stringArray); i++ {
+		var charCode = stringArray[i]
+		Comment(fmt.Sprintf("Pushing char %d to heap - (%c)", charCode, charCode))
+		Mov(W0, int(charCode))
+		StrB(W0, HP)
+		Mov(X0, 1)
+		Add(HP, HP, X0)
+	}
+	// Agregar terminador nulo
+	Comment("Pushing null terminator to heap")
+	Mov(W0, 0)
+	StrB(W0, HP)
+	Mov(X0, 1)
+	Add(HP, HP, X0)
 }
 
 func PopObject(rd string) StackObject {
@@ -133,7 +133,12 @@ func PopObject(rd string) StackObject {
 }
 
 func IntObject() StackObject {
-	return StackObject{Type: Int, Length: 8, Depth: depth, Id: nil}
+	return StackObject{
+		Type:   Int, // O como tengas definido el tipo entero
+		Length: 8,   // 8 bytes para un entero de 64 bits
+		Depth:  depth,
+		Id:     nil,
+	}
 }
 
 func FloatObject() StackObject {
@@ -149,27 +154,27 @@ func BoolObject() StackObject {
 }
 
 func SliceObject(elemType StackObjectType, size int) StackObject {
-    return StackObject{
-        Type:     elemType,   
-        Length:   8,          
-        Depth:    depth,
-        Id:       nil,
-        IsSlice:  true,
-        ElemType: elemType,
-        Size:     size,
-    }
+	return StackObject{
+		Type:     elemType,
+		Length:   8,
+		Depth:    depth,
+		Id:       nil,
+		IsSlice:  true,
+		ElemType: elemType,
+		Size:     size,
+	}
 }
 
 func CloneObject(obj StackObject) StackObject {
-    return StackObject{
-        Type:     obj.Type,
-        Length:   obj.Length,
-        Depth:    obj.Depth,
-        Id:       obj.Id,
-        IsSlice:  obj.IsSlice,
-        ElemType: obj.ElemType,
-        Size:     obj.Size,
-    }
+	return StackObject{
+		Type:     obj.Type,
+		Length:   obj.Length,
+		Depth:    obj.Depth,
+		Id:       obj.Id,
+		IsSlice:  obj.IsSlice,
+		ElemType: obj.ElemType,
+		Size:     obj.Size,
+	}
 }
 
 func NewScope() {
@@ -193,6 +198,9 @@ func EndScope() int {
 }
 
 func TagObject(id string) {
+	if len(stack) == 0 {
+		log.Fatal("Error: intento de etiquetar objeto en pila vacía")
+	}
 	stack[len(stack)-1].Id = &id
 }
 
@@ -264,11 +272,11 @@ func Str(rs1 string, rs2 string, offset int) {
 }
 
 func StrF(rd string, base string, offset int) {
-    instructions = append(instructions, fmt.Sprintf("str %s, [%s, #%d]", rd, base, offset))
+	instructions = append(instructions, fmt.Sprintf("str %s, [%s, #%d]", rd, base, offset))
 }
 
 func LdrF(rd string, base string, offset int) {
-    instructions = append(instructions, fmt.Sprintf("ldr %s, [%s, #%d]", rd, base, offset))
+	instructions = append(instructions, fmt.Sprintf("ldr %s, [%s, #%d]", rd, base, offset))
 }
 
 func StrB(rs1 string, rs2 string) {
@@ -305,7 +313,7 @@ func FMov(rd string, rs string) {
 	instructions = append(instructions, fmt.Sprintf("fmov %s, %s", rd, rs))
 }
 
-func FAdd(rd string, rs1 string, rs2 string ) {
+func FAdd(rd string, rs1 string, rs2 string) {
 	instructions = append(instructions, fmt.Sprintf("fadd %s, %s, %s", rd, rs1, rs2))
 }
 
@@ -359,29 +367,29 @@ func PrintString(rs string) {
 }
 
 func PrintChar(char rune) {
-    label := fmt.Sprintf("char_%d", int(char))
-    instructions = append(instructions, fmt.Sprintf("adr x1, %s", label)) // x1 = dirección del carácter
-    instructions = append(instructions, "mov x0, #1") // x0 = stdout
-    instructions = append(instructions, "mov x2, #1") // x2 = longitud
-    instructions = append(instructions, "mov x8, #64")
-    instructions = append(instructions, "svc #0")
-    usedSymbols[label] = true
+	label := fmt.Sprintf("char_%d", int(char))
+	instructions = append(instructions, fmt.Sprintf("adr x1, %s", label)) // x1 = dirección del carácter
+	instructions = append(instructions, "mov x0, #1")                     // x0 = stdout
+	instructions = append(instructions, "mov x2, #1")                     // x2 = longitud
+	instructions = append(instructions, "mov x8, #64")
+	instructions = append(instructions, "svc #0")
+	usedSymbols[label] = true
 }
 
 func PrintIntInline(rs string) {
-    if rs != X0 {
-        MovReg(X0, rs)
-    }
-    instructions = append(instructions, "bl print_integer_inline")
-    Use("print_integer_inline")
+	if rs != X0 {
+		MovReg(X0, rs)
+	}
+	instructions = append(instructions, "bl print_integer_inline")
+	Use("print_integer_inline")
 }
 
 func PrintFloatInline(rs string) {
-    if rs != D0 {
-        FMov(D0, rs) // fmov d0, rs
-    }
-    instructions = append(instructions, "bl print_double_inline")
-    Use("print_double_inline")
+	if rs != D0 {
+		FMov(D0, rs) // fmov d0, rs
+	}
+	instructions = append(instructions, "bl print_double_inline")
+	Use("print_double_inline")
 }
 
 func Comment(comment string) {
@@ -391,79 +399,82 @@ func Comment(comment string) {
 // Branch operations
 
 func BranchEq(label string) {
-    instructions = append(instructions, fmt.Sprintf("beq %s", label))
+	instructions = append(instructions, fmt.Sprintf("beq %s", label))
 }
 func Branch(label string) {
-    instructions = append(instructions, fmt.Sprintf("b %s", label))
+	instructions = append(instructions, fmt.Sprintf("b %s", label))
 }
 func Label(label string) {
-    instructions = append(instructions, fmt.Sprintf("%s:", label))
+	instructions = append(instructions, fmt.Sprintf("%s:", label))
 }
 
-
 func ToString() string {
-    var sb strings.Builder
-    sb.WriteString(".data\n")
-    sb.WriteString("heap: .space 4096\n")
+	var sb strings.Builder
+	sb.WriteString(".data\n")
+	sb.WriteString("heap: .space 4096\n")
 
-    // Agrega los símbolos usados aquí
-    if usedSymbols["minus_sign"] {
-        sb.WriteString("minus_sign: .ascii \"-\"\n")
-    }
-    if usedSymbols["newline"] {
-        sb.WriteString("newline: .ascii \"\\n\"\n")
-    }
-    if usedSymbols["dot_char"] {
-        sb.WriteString("dot_char: .ascii \".\"\n")
-    }
-    if usedSymbols["zero_char"] {
-        sb.WriteString("zero_char: .ascii \"0\"\n")
-    }
-    if usedSymbols["double_newline"] {
-        sb.WriteString("double_newline: .ascii \"\\n\"\n")
-    }
+	// Agrega los símbolos usados aquí
+	if usedSymbols["minus_sign"] {
+		sb.WriteString("minus_sign: .ascii \"-\"\n")
+	}
+	if usedSymbols["newline"] {
+		sb.WriteString("newline: .ascii \"\\n\"\n")
+	}
+	if usedSymbols["dot_char"] {
+		sb.WriteString("dot_char: .ascii \".\"\n")
+	}
+	if usedSymbols["zero_char"] {
+		sb.WriteString("zero_char: .ascii \"0\"\n")
+	}
+	if usedSymbols["double_newline"] {
+		sb.WriteString("double_newline: .ascii \"\\n\"\n")
+	}
 	if usedSymbols["atoi_error_msg"] {
 		sb.WriteString("atoi_error_msg: .ascii \"Error: entrada inválida en Atoi\\n\"\n")
 	}
-	
-    // Agregar los caracteres individuales usados por PrintChar
-    for symbol := range usedSymbols {
-        if strings.HasPrefix(symbol, "char_") {
-            charCode := strings.TrimPrefix(symbol, "char_")
-            sb.WriteString(fmt.Sprintf("%s: .byte %s\n", symbol, charCode))
-        }
-    }
 
-    sb.WriteString(".text\n")
-    sb.WriteString(".global _start\n")
-    sb.WriteString("_start:\n")
-    sb.WriteString("    adr x10, heap\n")
+	// Agregar los caracteres individuales usados por PrintChar
+	for symbol := range usedSymbols {
+		if strings.HasPrefix(symbol, "char_") {
+			charCode := strings.TrimPrefix(symbol, "char_")
+			sb.WriteString(fmt.Sprintf("%s: .byte %s\n", symbol, charCode))
+		}
+	}
 
-    for _, instr := range instructions {
-        sb.WriteString(fmt.Sprintf("    %s\n", instr))
-    }
+	sb.WriteString(".text\n")
+	sb.WriteString(".global _start\n")
+	sb.WriteString("_start:\n")
+	sb.WriteString("    adr x10, heap\n")
 
-    sb.WriteString("    mov x0, #0\n")
-    sb.WriteString("    mov x8, #93\n")
-    sb.WriteString("    svc #0\n")
+	for _, instr := range instructions {
+		sb.WriteString(fmt.Sprintf("    %s\n", instr))
+	}
 
-    standardFunctions := GetFunctionDefinitions()
-    if standardFunctions != "" {
-        sb.WriteString("\n// Standard Library Functions\n")
-        sb.WriteString(standardFunctions)
-    }
+	sb.WriteString("    mov x0, #0\n")
+	sb.WriteString("    mov x8, #93\n")
+	sb.WriteString("    svc #0\n")
 
-    return sb.String()
-}
+	standardFunctions := GetFunctionDefinitions()
+	if standardFunctions != "" {
+		sb.WriteString("\n// Standard Library Functions\n")
+		sb.WriteString(standardFunctions)
+	}
 
-func Bl(label string) {
-	instructions = append(instructions, fmt.Sprintf("bl %s", label))
+	return sb.String()
 }
 
 func PrintStringInline(rs string) {
-    if rs != X0 {
-        MovReg(X0, rs)
-    }
-    instructions = append(instructions, "bl print_string_inline")
-    Use("print_string_inline")
+	if rs != X0 {
+		MovReg(X0, rs)
+	}
+	instructions = append(instructions, "bl print_string_inline")
+	Use("print_string_inline")
+}
+
+func Call(name string) {
+	instructions = append(instructions, fmt.Sprintf("bl %s", name))
+}
+
+func UsedFunction(name string) {
+	usedFunctions[name] = true
 }
