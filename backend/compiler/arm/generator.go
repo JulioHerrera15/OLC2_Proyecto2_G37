@@ -388,6 +388,19 @@ func Comment(comment string) {
 	instructions = append(instructions, fmt.Sprintf("# %s", comment))
 }
 
+// Branch operations
+
+func BranchEq(label string) {
+    instructions = append(instructions, fmt.Sprintf("beq %s", label))
+}
+func Branch(label string) {
+    instructions = append(instructions, fmt.Sprintf("b %s", label))
+}
+func Label(label string) {
+    instructions = append(instructions, fmt.Sprintf("%s:", label))
+}
+
+
 func ToString() string {
     var sb strings.Builder
     sb.WriteString(".data\n")
