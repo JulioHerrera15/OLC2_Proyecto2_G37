@@ -838,6 +838,37 @@ func (v *Visitor) VisitExplicitSliceDeclaration(ctx *parser.ExplicitSliceDeclara
     return nil
 }
 
-func (v *Visitor) VisitIfStatement (ctx *parser.IfStatementContext) interface{} {
-	return nil
+func (v *Visitor) VisitIfStatement(ctx *parser.IfStatementContext) interface{} {
+    c.Comment("If statement")
+
+    labelElse := fmt.Sprintf("else_%p", ctx)
+    labelEnd := fmt.Sprintf("endif_%p", ctx)
+
+    // 1. Evalúa la condición (hijo 1)
+    v.Visit(ctx.ExpressionStatement())
+
+    c.PopObject(c.X0)
+    c.CmpImm(c.X0, 0)
+    c.BranchEq(labelElse)
+
+    // 2. Bloque del if (hijo 2)
+    v.Visit(ctx.BlockStatement(0))
+
+    c.Branch(labelEnd)
+
+    // 3. Else (si existe)
+    c.Label(labelElse)
+    // Si hay al menos 1 hijo más después del bloque if
+    if ctx.GetChildCount() > 3 {
+        // El hijo 3 es 'else', el hijo 4 es ifStatement o blockStatement
+        elseNode := ctx.GetChild(4)
+        if elseIfCtx, ok := elseNode.(*parser.IfStatementContext); ok {
+            v.Visit(elseIfCtx)
+        } else if blockCtx, ok := elseNode.(*parser.BlockStatementContext); ok {
+            v.Visit(blockCtx)
+        }
+    }
+    c.Label(labelEnd)
+
+    return nil
 }
