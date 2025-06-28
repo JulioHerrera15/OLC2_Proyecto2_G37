@@ -123,7 +123,6 @@ func PushStringNoStack(value string) {
     StrB(W0, HP)
     Mov(X0, 1)
     Add(HP, HP, X0)
-    // El puntero real del string queda en x11
 }
 
 func PopObject(rd string) StackObject {

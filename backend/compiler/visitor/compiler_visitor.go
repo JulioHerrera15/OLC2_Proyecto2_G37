@@ -311,13 +311,13 @@ func (v *Visitor) VisitPrintStatement(ctx *parser.PrintStatementContext) interfa
 			c.PrintChar('[')
 
 			for j := 0; j < length; j++ {
-				c.Ldr(c.X0, c.X9, j*8)
-				c.Comment(fmt.Sprintf("DEBUG puntero string #%d:", j))
-				// Aquí imprime el valor según el tipo
+				c.Comment(fmt.Sprintf("DEBUG elemento #%d:", j))
 				switch elemType {
 				case c.Int:
+					c.Ldr(c.X0, c.X9, j*8)
 					c.PrintIntInline(c.X0)
 				case c.String:
+					c.Ldr(c.X0, c.X9, j*8)
 					c.PrintStringInline(c.X0)
 				case c.Float:
 					c.LdrF(c.D0, c.X9, j*8)
@@ -484,6 +484,50 @@ func (v *Visitor) VisitExplicitDeclaration(ctx *parser.ExplicitDeclarationContex
 	return nil
 }
 
+func (v *Visitor) VisitImplicitDeclaration(ctx *parser.ImplicitDeclarationContext) interface{} {
+    var varName string = ctx.ID().GetText()
+
+    // Evalúa la expresión y deja el resultado en la pila real y virtual
+    v.Visit(ctx.ExpressionStatement())
+
+    // Etiqueta el objeto en la pila virtual con el nombre de la variable
+    c.TagObject(varName)
+
+    return nil
+}
+
+func (v *Visitor) VisitImplicitSliceDeclaration(ctx *parser.ImplicitSliceDeclarationContext) interface{} {
+    varName := ctx.ID().GetText()
+    var elemType c.StackObjectType
+
+    // Determina el tipo declarado
+    switch ctx.TYPE().GetText() {
+    case "int":
+        elemType = c.Int
+    case "string":
+        elemType = c.String
+    case "float64":
+        elemType = c.Float
+    }
+
+    // Visita los elementos del slice
+    v.Visit(ctx.SliceElements())
+
+    // Ajusta el tipo del slice si es necesario (por ejemplo, si está vacío)
+    obj := c.TopObject()
+    if obj.IsSlice && obj.Size == 0 {
+        obj.ElemType = elemType
+        obj.Type = elemType
+        c.PopObject(c.X0)
+        c.PushObject(obj)
+    }
+
+    // Etiqueta el objeto en la pila virtual con el nombre de la variable
+    c.TagObject(varName)
+
+    return nil
+}
+
 func (v *Visitor) VisitAssignment(ctx *parser.AssignmentContext) interface{} {
 	var assignee = ctx.ExpressionStatement(0)
 
@@ -581,34 +625,81 @@ func (v *Visitor) VisitSliceLiteral(ctx *parser.SliceLiteralContext) interface{}
         c.Addi(c.HP, c.HP, n*8) // Avanza el heap pointer para NO pisar el slice
     }
 
-   	var elemType c.StackObjectType
+    var elemType c.StackObjectType
 
-	for i, expr := range exprs {
-		// Detecta si el elemento es un string
-		if strCtx, ok := expr.(*parser.StringContext); ok {
-			value := strCtx.GetText()
-			value = strings.Trim(value, `"`)
-			c.Comment("Constant String (slice): " + value)
-			c.PushStringNoStack(value)
-			c.Str("x11", c.X9, i*8)
-			if i == 0 {
-				elemType = c.String
-			}
-		} else {
-			v.Visit(expr)
-			obj := c.TopObject()
-			if i == 0 {
-				elemType = obj.Type
-			}
-			if obj.Type == c.Float {
-				c.PopObject(c.D0)
-				c.StrF(c.D0, c.X9, i*8)
-			} else {
-				c.PopObject(c.X0)
-				c.Str(c.X0, c.X9, i*8)
-			}
-		}
-	}
+    for i, expr := range exprs {
+        // Detecta si el elemento es un string
+        if strCtx, ok := expr.(*parser.StringContext); ok {
+            value := strCtx.GetText()
+            value = strings.Trim(value, `"`)
+            c.Comment("Constant String (slice): " + value)
+            c.PushStringNoStack(value)
+            c.Str("x11", c.X9, i*8)
+            if i == 0 {
+                elemType = c.String
+            }
+        } else {
+            v.Visit(expr)
+            obj := c.TopObject()
+            if i == 0 {
+                elemType = obj.Type
+            }
+            if obj.Type == c.Float {
+                c.PopObject(c.D0)
+                c.StrF(c.D0, c.X9, i*8)
+            } else {
+                c.PopObject(c.X0)
+                c.Str(c.X0, c.X9, i*8)
+            }
+        }
+    }
+
+    if n == 0 {
+        c.Comment("Slice vacío, no se inicializan elementos")
+        elemType = c.StackObjectType(c.Int) // Por defecto, puedes cambiarlo
+    } else {
+        c.Comment(fmt.Sprintf("Slice inicializado con %d elementos de tipo %s", n, elemType))
+    }
+
+    // Push la dirección base como el slice
+    c.Push(c.X9)
+    c.PushObject(c.SliceObject(elemType, n))
+
+    return nil
+}
+
+func (v *Visitor) VisitSliceElements(ctx *parser.SliceElementsContext) interface{} {
+    exprs := ctx.AllExpressionStatement()
+    n := len(exprs)
+
+    c.Comment(fmt.Sprintf("Slice literal con %d elementos", n))
+
+    // Reserva espacio para el slice en el heap y avanza el heap pointer
+    c.MovReg(c.X9, c.HP) // x9 = base del slice
+    if n > 0 {
+        c.Addi(c.HP, c.HP, n*8) // Avanza el heap pointer para NO pisar el slice
+    }
+
+    var elemType c.StackObjectType
+
+    for i, expr := range exprs {
+        v.Visit(expr)
+        obj := c.TopObject()
+        if i == 0 {
+            elemType = obj.Type
+        }
+        switch obj.Type {
+		case c.Float:
+			c.PopObject(c.D0)
+			c.StrF(c.D0, c.X9, i*8)
+        case c.String:
+            c.PopObject(c.X0)
+            c.Str(c.X0, c.X9, i*8)
+        default:
+            c.PopObject(c.X0)
+            c.Str(c.X0, c.X9, i*8)
+        }
+    }
 
     if n == 0 {
         c.Comment("Slice vacío, no se inicializan elementos")
@@ -641,7 +732,6 @@ func (v *Visitor) VisitSliceAccess(ctx *parser.SliceAccessContext) interface{} {
     c.Mul(c.X2, c.X2, c.X3)
     c.Add(c.X0, c.X0, c.X2)
 
-    // --- Aquí el cambio importante ---
     if obj.ElemType == c.Float {
         c.LdrF(c.D0, c.X0, 0)
         c.Push(c.D0)
@@ -746,4 +836,8 @@ func (v *Visitor) VisitExplicitSliceDeclaration(ctx *parser.ExplicitSliceDeclara
         c.TagObject(varName)
     }
     return nil
+}
+
+func (v *Visitor) VisitIfStatement (ctx *parser.IfStatementContext) interface{} {
+	return nil
 }
