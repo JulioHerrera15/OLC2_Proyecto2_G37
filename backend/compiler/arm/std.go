@@ -2,6 +2,7 @@ package arm
 
 import (
 	"strings"
+    
 )
 
 var usedFunctions = make(map[string]bool)

@@ -586,32 +586,42 @@ func (v *Visitor) VisitBlockStatement(ctx *parser.BlockStatementContext) interfa
 
 //---------------------------------------------------------------------------------------
 func (v *Visitor) VisitFunctionCall(ctx *parser.FunctionCallContext) interface{} {
-	functionName := strings.ToLower(ctx.ID().GetText())
+	functionName := ctx.ID().GetText()
 
-	if functionName == "atoi" {
+	switch functionName {
+	case "atoi":
 		if ctx.ArgumentList() == nil || len(ctx.ArgumentList().AllExpressionStatement()) != 1 {
-			log.Fatalf("atoi espera 1 argumento.")
+			log.Fatalf("Error: atoi espera 1 argumento, pero se proporcionaron %d.", len(ctx.ArgumentList().AllExpressionStatement()))
 		}
 
+		// Evaluamos el argumento
 		v.Visit(ctx.ArgumentList().ExpressionStatement(0))
 		arg := c.PopObject(c.X0)
 
 		if arg.Type != c.StackObjectType(c.String) {
-			log.Fatalf("atoi espera un argumento de tipo string.")
+			log.Fatalf("Error: atoi espera un argumento de tipo string, pero se obtuvo %s.", arg.Type.String())
 		}
 
+		// Se espera que el string ya esté cargado en X0 (la dirección en el heap)
 		c.Comment("Llamada a atoi")
-		c.MovReg(c.X0, c.X0)
-		c.Use("atoi")
-		c.Bl("atoi")
-		c.PushObject(c.IntObject())
-		c.Push(c.X0)
+		c.Use("atoi") // para el linker
+		c.Bl("atoi")  // resultado en X0
+
+		// Creamos un StackObject de tipo entero con el resultado
+		result := c.IntObject()
+		result.Ref = c.X0
+		c.PushObject(result)
+
 		return nil
+
+	default:
+		log.Fatalf("Error: función %s no está definida.", functionName)
 	}
 
-	log.Fatalf("Función no reconocida: %s", functionName)
 	return nil
 }
+
+
 
 func (v *Visitor) VisitSliceLiteral(ctx *parser.SliceLiteralContext) interface{} {
     exprs := ctx.AllExpressionStatement()

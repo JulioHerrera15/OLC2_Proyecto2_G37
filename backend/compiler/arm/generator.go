@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"log"
 )
 
 type StackObjectType int
@@ -38,7 +39,9 @@ type StackObject struct {
     Id       *string
     IsSlice  bool            
     ElemType StackObjectType  
-    Size     int              
+    Size     int
+    Ref       string  // ya agregaste este?
+    HeapAddr  string  // o string, o el tipo que uses para direcciones       
 }
 
 var instructions = []string{}
@@ -94,6 +97,8 @@ func PushConstant(value interface{}, objType StackObject) {
 		// Ahora pon el puntero real del string en X0
 		MovReg(X0, "x11")
 		Push(X0)
+		// Nuevo: guarda ese puntero en el StackObject
+    	objType.HeapAddr = "x11"
 	case Bool:
 		if value.(bool) {
 			Mov(X0, 1)
@@ -193,8 +198,12 @@ func EndScope() int {
 }
 
 func TagObject(id string) {
-	stack[len(stack)-1].Id = &id
+    if len(stack) == 0 {
+        log.Fatalf("TagObject falló: la pila está vacía (no se hizo PushObject). Variable: %s", id)
+    }
+    stack[len(stack)-1].Id = &id
 }
+
 
 func GetObject(id string) (int, StackObject) {
 	var byteOffset = 0
