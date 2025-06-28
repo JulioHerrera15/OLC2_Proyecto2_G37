@@ -34,20 +34,26 @@ func (v *Visitor) Visit(tree antlr.ParseTree) interface{} {
 }
 
 func (v *Visitor) VisitProgram(ctx *parser.ProgramContext) interface{} {
-	// Visitar todos los statements del programa
-	for i := 0; i < ctx.GetChildCount(); i++ {
-		child := ctx.GetChild(i)
-		v.Visit(child.(antlr.ParseTree))
-	}
-	return nil
+    //fmt.Printf("🔍 DEBUG: VisitProgram - Número de hijos: %d\n", ctx.GetChildCount())
+    
+    // Visitar todos los statements del programa
+    for i := 0; i < ctx.GetChildCount(); i++ {
+        child := ctx.GetChild(i)
+        //fmt.Printf("🔍 DEBUG: Hijo %d: %T\n", i, child)
+        v.Visit(child.(antlr.ParseTree))
+    }
+    return nil
 }
 
 func (v *Visitor) VisitStatement(ctx *parser.StatementContext) interface{} {
-	for i := 0; i < ctx.GetChildCount(); i++ {
-		child := ctx.GetChild(i)
-		v.Visit(child.(antlr.ParseTree))
-	}
-	return nil
+    //fmt.Printf("🔍 DEBUG: VisitStatement - Número de hijos: %d\n", ctx.GetChildCount())
+    
+    for i := 0; i < ctx.GetChildCount(); i++ {
+        child := ctx.GetChild(i)
+        //fmt.Printf("🔍 DEBUG: Statement hijo %d: %T\n", i, child)
+        v.Visit(child.(antlr.ParseTree))
+    }
+    return nil
 }
 
 func (v *Visitor) VisitNonDeclaration(ctx *parser.NonDeclarationContext) interface{} {
@@ -71,148 +77,144 @@ func (v *Visitor) VisitExpressionStatement(ctx *parser.ExpressionStatementContex
 }
 
 func (v *Visitor) VisitInteger(ctx *parser.IntegerContext) interface{} {
-	var value = ctx.GetText()
-	intValue, _ := strconv.Atoi(value)
-
-	c.Comment("Constant: " + value)
-
-	var IntObject = c.IntObject()
-	c.PushConstant(intValue, IntObject)
-
-	return nil
+    var value = ctx.GetText()
+    intValue, _ := strconv.Atoi(value)
+    c.Comment("Constant: " + value)
+    var IntObject = c.IntObject()
+    if !inFunctionArgs {
+        c.PushConstant(intValue, IntObject)
+    } else {
+        c.Mov(c.X0, intValue)
+    }
+    // SIEMPRE pushea a la pila virtual
+    c.PushObject(IntObject)
+    return nil
 }
 
 func (v *Visitor) VisitFloat(ctx *parser.FloatContext) interface{} {
-	var value = ctx.GetText()
-
-	floatValue, err := strconv.ParseFloat(value, 64)
-	if err != nil {
-		log.Printf("Error parsing float: %v", err)
-		floatValue = 0.0
-	}
-
-	var floatObject = c.FloatObject()
-	c.PushConstant(floatValue, floatObject)
-
-	return nil
+    var value = ctx.GetText()
+    floatValue, err := strconv.ParseFloat(value, 64)
+    if err != nil {
+        log.Printf("Error parsing float: %v", err)
+        floatValue = 0.0
+    }
+    var floatObject = c.FloatObject()
+    if !inFunctionArgs {
+        c.PushConstant(floatValue, floatObject)
+    } else {
+        c.FMov(c.D0, fmt.Sprintf("%f", floatValue))
+    }
+    // SIEMPRE pushea a la pila virtual
+    c.PushObject(floatObject)
+    return nil
 }
 
 func (v *Visitor) VisitString(ctx *parser.StringContext) interface{} {
-	var value = strings.Trim(ctx.GetText(), `"`) // Eliminar comillas
-	c.Comment("Constant String: " + value)
-	var StringObject = c.StringObject()
-	c.PushConstant(value, StringObject)
-
-	return nil
+    var value = strings.Trim(ctx.GetText(), `"`)
+    c.Comment("Constant String: " + value)
+    var StringObject = c.StringObject()
+    if !inFunctionArgs {
+        c.PushConstant(value, StringObject)
+    } else {
+        c.PushStringNoStack(value)
+        c.MovReg(c.X0, "x11")
+    }
+    // SIEMPRE pushea a la pila virtual
+    c.PushObject(StringObject)
+    return nil
 }
 
 func (v *Visitor) VisitBoolean(ctx *parser.BooleanContext) interface{} {
-	var value = ctx.GetText()
-	var boolValue bool
-	if value == "true" {
-		boolValue = true
-	} else {
-		boolValue = false
-	}
-
-	c.Comment("Constant Boolean: " + value)
-	var BoolObject = c.BoolObject()
-	c.PushConstant(boolValue, BoolObject)
-
-	return nil
+    var value = ctx.GetText()
+    var boolValue int
+    if value == "true" {
+        boolValue = 1
+    } else {
+        boolValue = 0
+    }
+    c.Comment("Constant Boolean: " + value)
+    var BoolObject = c.BoolObject()
+    if !inFunctionArgs {
+        c.PushConstant(boolValue, BoolObject)
+    } else {
+        c.Mov(c.X0, boolValue)
+    }
+    // SIEMPRE pushea a la pila virtual
+    c.PushObject(BoolObject)
+    return nil
 }
 
 func (v *Visitor) VisitAddSub(ctx *parser.AddSubContext) interface{} {
-	var op = ctx.GetChild(1).(*antlr.TerminalNodeImpl).GetText()
+    var op = ctx.GetChild(1).(*antlr.TerminalNodeImpl).GetText()
 
-	v.Visit(ctx.GetChild(0).(antlr.ParseTree))
-	v.Visit(ctx.GetChild(2).(antlr.ParseTree))
+    v.Visit(ctx.GetChild(0).(antlr.ParseTree)) // 'a' se pushea primero
+    v.Visit(ctx.GetChild(2).(antlr.ParseTree)) // 'b' se pushea después
 
-	/* Reemplazado por el método de PopObject
-	   c.Pop(c.X1) // Pop second operand
-	   c.Pop(c.X0) // Pop first operand*/
+    // CORREGIR: El primer pop es el SEGUNDO operando (último pusheado)
+    var isRightDouble = c.TopObject().Type == c.StackObjectType(c.Float)
+    var rightReg interface{}
+    if isRightDouble {
+        rightReg = c.D1  // CAMBIAR: usar D1 para el segundo operando
+    } else {
+        rightReg = c.X1  // CAMBIAR: usar X1 para el segundo operando
+    }
+    c.PopObject(rightReg.(string)) // Pop 'b' (segundo operando)
 
-	// Se pueden obtener los operandos directamente de la pila
+    var isLeftDouble = c.TopObject().Type == c.StackObjectType(c.Float)
+    var leftReg interface{}
+    if isLeftDouble {
+        leftReg = c.D0   // CAMBIAR: usar D0 para el primer operando
+    } else {
+        leftReg = c.X0   // CAMBIAR: usar X0 para el primer operando
+    }
+    var left = c.PopObject(leftReg.(string)) // Pop 'a' (primer operando)
 
-	var isRightDouble = c.TopObject().Type == c.StackObjectType(c.Float)
-	var rightReg interface{}
-	if isRightDouble {
-		rightReg = c.D0
-	} else {
-		rightReg = c.X0
-	}
-	var right = c.PopObject(rightReg.(string)) // Pop second operand
+    if isLeftDouble || isRightDouble {
+        if !isLeftDouble {
+            c.Scvtf(c.D0, c.X0)
+        }
+        if !isRightDouble {
+            c.Scvtf(c.D1, c.X1)
+        }
 
-	var isLeftDouble = c.TopObject().Type == c.StackObjectType(c.Float)
-	var leftReg interface{}
-	if isLeftDouble {
-		leftReg = c.D1
-	} else {
-		leftReg = c.X1
-	}
-	var left = c.PopObject(leftReg.(string)) // Pop first operand
+        switch op {
+        case "+":
+            c.Comment("Addition operator for double")
+            c.FAdd(c.D0, c.D0, c.D1)  // D0 + D1
+        case "-":
+            c.Comment("Subtraction operator for double")
+            c.FSub(c.D0, c.D0, c.D1)  // D0 - D1 (CORREGIR orden)
+        }
 
-	// Esto permite que los operandos sean objetos del stack
-	// y se manejen de manera más flexible.
+        if !inReturn {
+            c.Comment("Pushing result of double operation")
+            c.Push(c.D0)
+            c.PushObject(c.CloneObject(left))
+        }
+        return nil
+    }
 
-	// Se pueden utilizar para obtener el tipo de dato de la siguiente forma:
-	// right.Type
-	// Lo cual permite saber que tipo de operaciones se pueden realizar o no
-	// con los operandos, por ejemplo, si la operación es de entero con entero
-	// o de entero con flotante, etc.
+    switch op {
+    case "+":
+        c.Comment("Addition operator")
+        c.Add(c.X0, c.X0, c.X1)  // X0 + X1 (a + b)
+    case "-":
+        c.Comment("Subtraction operator")
+        c.Sub(c.X0, c.X0, c.X1)  // X0 - X1 (a - b)
+    }
 
-	if isLeftDouble || isRightDouble {
-		if !isLeftDouble {
-			c.Scvtf(c.D1, c.X1)
-		}
-		if !isRightDouble {
-			c.Scvtf(c.D0, c.X0)
-		}
+    if !inReturn {
+        c.Push(c.X0)
+        var objToPush interface{}
+        if isLeftDouble {
+            objToPush = left
+        } else {
+            objToPush = left  // CAMBIAR: usar left siempre para el resultado
+        }
+        c.PushObject(c.CloneObject(objToPush.(c.StackObject)))
+    }
 
-		switch op {
-		case "+":
-			c.Comment("Addition operator for double")
-			c.FAdd(c.D0, c.D0, c.D1) // D0 = D0 + D1
-		case "-":
-			c.Comment("Subtraction operator for double")
-			c.FSub(c.D0, c.D1, c.D0) // D0 = D1 - D0
-		}
-
-		c.Comment("Pushing result of double operation")
-		c.Push(c.D0)                      // Push the result of the double operation
-		c.PushObject(c.CloneObject(left)) // Push the left operand object to the stack
-
-		return nil
-	}
-
-	switch op {
-	case "+":
-		c.Comment("Addition operator")
-		c.Add(c.X0, c.X0, c.X1)
-	case "-":
-		c.Comment("Subtraction operator")
-		c.Sub(c.X0, c.X1, c.X0)
-	}
-
-	c.Push(c.X0)
-	// Pushear tambien en la pila virtual
-	var objToPush interface{}
-	if isLeftDouble {
-		objToPush = left
-	} else {
-		objToPush = right
-	}
-	c.PushObject(c.CloneObject(objToPush.(c.StackObject)))
-
-	// Se hace de momento con left a forma de demostración,
-	// pero se debería hacer con el tipo de mayor predominancia.
-	// Por ejemplo, si se hace una suma de un entero con un flotante,
-	// se debería pushear un objeto flotante en la pila virtual.
-
-	// TODO: Agregar lógica para pushear el tipo de dato correcto
-	// dependiendo de la operación y los operandos.
-
-	return nil
+    return nil
 }
 
 func (v *Visitor) VisitMulDivMod(ctx *parser.MulDivModContext) interface{} {
@@ -263,28 +265,54 @@ func (v *Visitor) VisitIncrementDecrement(ctx *parser.IncrementDecrementContext)
 }
 
 func (v *Visitor) VisitAddSubOperator(ctx *parser.AddSubOperatorContext) interface{} {
-	var op = ctx.GetText()
+    var op = ctx.GetChild(1).(*antlr.TerminalNodeImpl).GetText()
+    varName := ctx.GetChild(0).(*antlr.TerminalNodeImpl).GetText()
 
-	v.Visit(ctx.GetChild(0).(antlr.ParseTree))
-	v.Visit(ctx.GetChild(2).(antlr.ParseTree))
+    // Evalúa ambos operandos
+    v.Visit(ctx.GetChild(0).(antlr.ParseTree)) // variable (ID)
+    v.Visit(ctx.GetChild(2).(antlr.ParseTree)) // valor a sumar/restar
 
-	// TODO: Reemplazar por PopObject y agregar manejo de tipos
+    c.PopObject(c.X1) // valor a sumar/restar
+    c.PopObject(c.X0) // valor actual de la variable
 
-	c.PopObject(c.X1)            // Pop second operand
-	var left = c.PopObject(c.X0) // Pop first operand
+    offset, varObject := c.GetObject(varName)
 
-	switch op {
-	case "+=":
-		c.Comment("Add assignment operator")
-		c.Add(c.X0, c.X0, c.X1) // X0 = X0 + X1
-	case "-=":
-		c.Comment("Subtract assignment operator")
-		c.Sub(c.X0, c.X0, c.X1) // X0 = X0 - X1
-	}
-	c.Push(c.X0)                      // Push the result back
-	c.PushObject(c.CloneObject(left)) // Push the left operand object to the stack
-
-	return nil
+    if varObject.Type == c.Float {
+        c.Scvtf(c.D0, c.X0)
+        c.Scvtf(c.D1, c.X1)
+        switch op {
+        case "+=":
+            c.Comment("Add assignment operator (float)")
+            c.FAdd(c.D0, c.D0, c.D1)
+        case "-=":
+            c.Comment("Subtract assignment operator (float)")
+            c.FSub(c.D0, c.D0, c.D1)
+        }
+        c.Mov(c.X1, offset)
+        c.Add(c.X1, c.SP, c.X1)
+        c.StrF(c.D0, c.X1, 0)
+        c.Push(c.D0)
+        floatObj := c.CloneObject(varObject)
+        floatObj.Type = c.Float
+        c.PushObject(floatObj)
+    } else {
+        switch op {
+        case "+=":
+            c.Comment("Add assignment operator")
+            c.Add(c.X0, c.X0, c.X1)
+        case "-=":
+            c.Comment("Subtract assignment operator")
+            c.Sub(c.X0, c.X0, c.X1)
+        }
+        c.Mov(c.X1, offset)
+        c.Add(c.X1, c.SP, c.X1)
+        c.Str(c.X0, c.X1, 0)
+        c.Push(c.X0)
+        intObj := c.CloneObject(varObject)
+        intObj.Type = c.Int
+        c.PushObject(intObj)
+    }
+    return nil
 }
 
 func (v *Visitor) VisitParens(ctx *parser.ParensContext) interface{} {
@@ -428,29 +456,43 @@ func (v *Visitor) VisitGreaterLess(ctx *parser.GreaterLessContext) interface{} {
 }
 
 func (v *Visitor) VisitEqual(ctx *parser.EqualContext) interface{} {
-	var op = ctx.GetChild(1).(*antlr.TerminalNodeImpl).GetText()
+    var op = ctx.GetChild(1).(*antlr.TerminalNodeImpl).GetText()
 
-	v.Visit(ctx.GetChild(0).(antlr.ParseTree))
-	v.Visit(ctx.GetChild(2).(antlr.ParseTree))
+    v.Visit(ctx.GetChild(0).(antlr.ParseTree))
+    v.Visit(ctx.GetChild(2).(antlr.ParseTree))
 
-	// TODO: Reemplazar por PopObject y agregar manejo de tipos
+    right := c.PopObject(c.X1)
+    left := c.PopObject(c.X0)
+    c.Comment("Comparison operation: " + op)
 
-	c.PopObject(c.X1)            // Pop second operand
-	var left = c.PopObject(c.X0) // Pop first operand
-	c.Comment("Comparison operation: " + op)
+    // Comparación de strings
+    if left.Type == c.String && right.Type == c.String {
+        c.UsedFunction("strcmp")
+        c.MovReg("x2", "x0") // x2 = primer string
+        c.MovReg("x3", "x1") // x3 = segundo string
+        c.Call("strcmp")     // strcmp(x2, x3), resultado en x0
+        if op == "==" {
+            c.Cmp("x0", "#0")
+            c.Cset("x0", "eq")
+        } else {
+            c.Cmp("x0", "#0")
+            c.Cset("x0", "ne")
+        }
+    } else {
+        // Comparación normal (int, bool, etc)
+        switch op {
+        case "==":
+            c.Cmp(c.X0, c.X1)
+            c.Cset(c.X0, "eq")
+        case "!=":
+            c.Cmp(c.X0, c.X1)
+            c.Cset(c.X0, "ne")
+        }
+    }
 
-	switch op {
-	case "==":
-		c.Cmp(c.X0, c.X1)  // Compare X0 and X1
-		c.Cset(c.X0, "eq") // Set X0 to 1 if X0 == X1, else 0
-	case "!=":
-		c.Cmp(c.X0, c.X1)  // Compare X0 and X1
-		c.Cset(c.X0, "ne") // Set X0 to 1 if X0 != X1, else 0
-	}
-
-	c.Push(c.X0)                      // Push the result back
-	c.PushObject(c.CloneObject(left)) // Push the left operand object to the stack
-	return nil
+    c.Push(c.X0)
+    c.PushObject(c.CloneObject(left))
+    return nil
 }
 
 func (v *Visitor) VisitNegate(ctx *parser.NegateContext) interface{} {
@@ -490,15 +532,23 @@ func (v *Visitor) VisitExplicitDeclaration(ctx *parser.ExplicitDeclarationContex
 }
 
 func (v *Visitor) VisitImplicitDeclaration(ctx *parser.ImplicitDeclarationContext) interface{} {
-	var varName string = ctx.ID().GetText()
+    var varName string = ctx.ID().GetText()
 
-	// Evalúa la expresión y deja el resultado en la pila real y virtual
-	v.Visit(ctx.ExpressionStatement())
+    // Evalúa la expresión y deja el resultado en la pila real y virtual
+    v.Visit(ctx.ExpressionStatement())
 
-	// Etiqueta el objeto en la pila virtual con el nombre de la variable
-	c.TagObject(varName)
+    // Forzar tipo int si la expresión es un entero literal
+    obj := c.TopObject()
+    if _, ok := ctx.ExpressionStatement().(*parser.IntegerContext); ok {
+        obj.Type = c.Int
+        //c.PopObject(c.X0)
+        c.PushObject(obj)
+    }
 
-	return nil
+    // Etiqueta el objeto en la pila virtual con el nombre de la variable
+    c.TagObject(varName)
+
+    return nil
 }
 
 func (v *Visitor) VisitImplicitSliceDeclaration(ctx *parser.ImplicitSliceDeclarationContext) interface{} {
@@ -556,43 +606,143 @@ func (v *Visitor) VisitAssignment(ctx *parser.AssignmentContext) interface{} {
 }
 
 func (v *Visitor) VisitIdentifier(ctx *parser.IdentifierContext) interface{} {
-	var id string = ctx.ID().GetText()
+    var id string = ctx.ID().GetText()
+    
+    // Verificar si es un parámetro de la función actual
+    if paramIndex, isParam := currentFunctionParams[id]; isParam {
+        // Para parámetros: HACER push desde el registro correspondiente
+        reg := fmt.Sprintf("x%d", paramIndex)
+        c.Push(reg)
+        c.PushObject(c.IntObject())
+        return nil
+    }
+    
+    // Variables normales
+    offset, object := c.GetObject(id)
+    if offset == -1 {
+        log.Printf("Variable no encontrada: %s", id)
+        return nil
+    }
 
-	offset, object := c.GetObject(id)
-	c.Mov(c.X0, offset)
-	c.Add(c.X0, c.SP, c.X0)
-	c.Ldr(c.X0, c.X0, 0)
+    if object.Type == c.Float {
+        c.LdrF(c.D0, c.SP, offset)
+        c.Push(c.D0)
+    } else {
+        c.Ldr(c.X0, c.SP, offset)
+        c.Push(c.X0)
+    }
 
-	c.Push(c.X0)
-
-	var newObject = c.CloneObject(object)
-	newObject.Id = nil
-	c.PushObject(newObject)
-
-	return nil
+    c.PushObject(c.CloneObject(object))
+    return nil
 }
+
 func (v *Visitor) VisitBlockStatement(ctx *parser.BlockStatementContext) interface{} {
-	c.Comment("Entering block statement")
-	c.NewScope()
+    c.Comment("Entering block statement")
+    // NO crear nuevo scope aquí si ya estamos en una función
+    // c.NewScope() - comentar esta línea
 
-	for _, statement := range ctx.AllStatement() {
-		v.Visit(statement.(antlr.ParseTree))
-	}
+    for _, statement := range ctx.AllStatement() {
+        v.Visit(statement.(antlr.ParseTree))
+    }
 
-	var bytesToRemove int = c.EndScope() // End the scope and get the bytes to remove from the stack
-	if bytesToRemove > 0 {
-		c.Mov(c.X0, bytesToRemove) // Move the bytes to remove to X0
-		c.Add(c.SP, c.SP, c.X0)    // Adjust the stack pointer
-		c.Comment("Stack pointer adjusted")
-	}
+    // Comentar también el EndScope
+    /* var bytesToRemove int = c.EndScope() // End the scope and get the bytes to remove from the stack
+    if bytesToRemove > 0 {
+        c.Mov(c.X0, bytesToRemove) // Move the bytes to remove to X0
+        c.Add(c.SP, c.SP, c.X0)    // Adjust the stack pointer
+        c.Comment("Stack pointer adjusted")
+    } */
 
-	return nil
+    return nil
 }
 
-// ---------------------------------------------ATOI------------------------------------------
+var currentFunctionParams map[string]int = make(map[string]int)
+
+func (v *Visitor) VisitFunctionDeclaration(ctx *parser.FunctionDeclarationContext) interface{} {
+    funcName := ctx.ID(0).GetText()
+    
+    // Limpiar el mapeo anterior
+    currentFunctionParams = make(map[string]int)
+    
+    c.StartFunction(funcName)
+
+    var params []string
+    if ctx.ParameterList() != nil {
+        paramList := ctx.ParameterList()
+        for _, paramCtx := range paramList.AllParameter() {
+            paramIds := paramCtx.AllID()
+            if len(paramIds) > 0 {
+                paramName := paramIds[0].GetText()
+                params = append(params, paramName)
+            }
+        }
+    }
+    
+    // ARREGLAR: NO guardar parámetros en la pila, solo mapearlos
+    for i, paramName := range params {
+        if i < 4 {
+            currentFunctionParams[paramName] = i // a=0, b=1, etc.
+            // NO hacer PushObject ni TagObject aquí
+        }
+    }
+
+    v.Visit(ctx.BlockStatement())
+    
+    c.EndFunction(funcName)
+    
+    // Limpiar después de la función
+    currentFunctionParams = make(map[string]int)
+    return nil
+}
+
+func (v *Visitor) VisitChildren(node antlr.RuleNode) interface{} {
+    //fmt.Printf("🔍 DEBUG: VisitChildren llamado para: %T\n", node)
+    
+    // Si es un contexto de función, manejarlo especialmente
+    /* nodeStr := fmt.Sprintf("%T", node)
+    if strings.Contains(nodeStr, "Function") {
+        fmt.Printf("🔧 DEBUG: Posible función detectada: %s\n", nodeStr)
+    } */
+    
+    // Llamar al comportamiento por defecto
+    return v.BaseLanguageVisitor.VisitChildren(node)
+}
+
+var inFunctionArgs bool = false
 
 func (v *Visitor) VisitFunctionCall(ctx *parser.FunctionCallContext) interface{} {
-	return nil
+    funcName := ctx.ID().GetText()
+
+    if ctx.ArgumentList() != nil {
+        argsList := ctx.ArgumentList()
+        args := argsList.AllExpressionStatement()
+        
+        // EVALUAR todos los argumentos PRIMERO (van a la pila)
+        for _, expr := range args {
+            v.Visit(expr)
+        }
+        
+        // DESPUÉS moverlos a registros en ORDEN INVERSO
+        for i := len(args) - 1; i >= 0 && i < 4; i-- {
+            reg := fmt.Sprintf("x%d", i)
+            c.PopObject(reg) // Pop en orden inverso
+        }
+    }
+
+    c.Call(funcName)
+    c.Push(c.X0)         // El resultado está en x0
+    c.PushObject(c.IntObject())
+    return nil
+}
+
+var inReturn bool = false
+
+func (v *Visitor) VisitReturnStatement(ctx *parser.ReturnStatementContext) interface{} {
+    if ctx.ExpressionStatement() != nil {
+        v.Visit(ctx.ExpressionStatement())
+        c.PopObject(c.X0) // El resultado debe estar en X0
+    }
+    return nil
 }
 
 func (v *Visitor) VisitAtoiExpr(ctx *parser.AtoiExprContext) interface{} {

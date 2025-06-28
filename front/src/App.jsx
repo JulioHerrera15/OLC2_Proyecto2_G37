@@ -390,11 +390,15 @@ function App() {
       setCode(e.target.result)
       setCurrentFile(file.name)
       setHasUnsavedChanges(false)
-      setOutput(`📁 Archivo "${file.name}" cargado exitosamente\n✅ Listo para compilación`)
+      setOutput(`📁 Archivo "${file.name}" cargado exitosamente`)
       setActiveMenu(null)
+      // <-- Aquí resetea el input
+      event.target.value = null
     }
     reader.onerror = () => {
       setOutput(`❌ Error leyendo archivo: ${reader.error}`)
+      // <-- Aquí también resetea el input
+      event.target.value = null
     }
     reader.readAsText(file)
   }
