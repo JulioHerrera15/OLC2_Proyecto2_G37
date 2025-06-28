@@ -592,40 +592,36 @@ func (v *Visitor) VisitBlockStatement(ctx *parser.BlockStatementContext) interfa
 // ---------------------------------------------ATOI------------------------------------------
 
 func (v *Visitor) VisitFunctionCall(ctx *parser.FunctionCallContext) interface{} {
-	fnName := ctx.ID().GetText()
-	args := []antlr.ParseTree{}
-	if ctx.ArgumentList() != nil {
-		for _, expr := range ctx.ArgumentList().AllExpressionStatement() {
-			args = append(args, expr.(antlr.ParseTree))
-		}
-	}
-
-	if fnName == "atoi" {
-		if len(args) != 1 {
-			log.Fatal("atoi requiere exactamente un argumento")
-		}
-
-		// Evaluar el argumento (esto coloca el string en la pila)
-		v.Visit(args[0])
-
-		// Obtener el string de la pila
-		arg := c.PopObject(c.X0)
-		if arg.Type != c.String {
-			log.Fatal("atoi solo acepta strings como argumento")
-		}
-
-		c.UsedFunction("atoi")
-		c.Comment("Llamando a función atoi")
-		c.Call("atoi")
-		c.Comment("Valor en x0 tras atoi (debe ser entero válido)")
-
-		// IMPORTANTE: Empujar TANTO al stack de registros COMO al stack virtual
-		c.Push(c.X0)                // Para el stack de registros
-		c.PushObject(c.IntObject()) // Para el stack virtual (esto es lo que faltaba)
-
-		return nil
-	}
 	return nil
+}
+
+func (v *Visitor) VisitAtoiExpr(ctx *parser.AtoiExprContext) interface{} {
+    // Obtenemos el nodo hijo que es el atoiStatement
+    atoiStmt := ctx.AtoiStatement()
+    if atoiStmt == nil {
+        log.Fatal("Error: AtoiExprContext sin atoiStatement")
+    }
+
+    // Visitamos el argumento dentro de atoi(...)
+    argExpr := atoiStmt.ExpressionStatement()
+    v.Visit(argExpr)
+
+    // Sacamos el string de la pila virtual
+    arg := c.PopObject(c.X0)
+    if arg.Type != c.String {
+        log.Fatal("atoi solo acepta strings como argumento")
+    }
+
+    c.UsedFunction("atoi")
+    c.Comment("Llamando a función atoi")
+    c.Call("atoi")
+    c.Comment("Valor en x0 tras atoi (debe ser entero válido)")
+
+    // Empujamos el resultado tanto en la pila real como virtual
+    c.Push(c.X0)
+    c.PushObject(c.IntObject())
+
+    return nil
 }
 
 //---------------------------------------------------------------------------------------
