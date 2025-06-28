@@ -872,3 +872,59 @@ func (v *Visitor) VisitIfStatement(ctx *parser.IfStatementContext) interface{} {
 
     return nil
 }
+
+func (v *Visitor) VisitSwitchStatement(ctx *parser.SwitchStatementContext) interface{} {
+    c.Comment("Switch statement")
+
+    // 1. Evalúa el valor del switch (ID)
+    id := ctx.ID().GetText()
+    offset, _ := c.GetObject(id)
+    c.Mov(c.X0, offset)
+    c.Add(c.X0, c.SP, c.X0)
+    c.Ldr(c.X0, c.X0, 0) // x0 = valor del switch
+
+    // 2. Prepara labels
+    nCases := len(ctx.AllSwitchCase())
+    labelEnd := fmt.Sprintf("end_switch_%p", ctx)
+    labelDefault := fmt.Sprintf("default_%p", ctx)
+    caseLabels := make([]string, nCases)
+    for i := range caseLabels {
+        caseLabels[i] = fmt.Sprintf("case_%d_%p", i, ctx)
+    }
+
+    // 3. Compara con cada case
+    c.MovReg("x2", "x0") // Guarda el valor del switch en x2
+    for i, caseCtx := range ctx.AllSwitchCase() {
+        v.Visit(caseCtx.ExpressionStatement())
+        c.PopObject(c.X1) // valor del case en x1
+        c.Cmp("x2", "x1") // compara el valor original del switch con el del case
+        c.BranchEq(caseLabels[i])
+    }
+    // Si no hay match, salta a default (si existe) o al final
+    if ctx.DefaultCase() != nil {
+        c.Branch(labelDefault)
+    } else {
+        c.Branch(labelEnd)
+    }
+
+    // 4. Genera el código de cada case
+    for i, caseCtx := range ctx.AllSwitchCase() {
+        c.Label(caseLabels[i])
+        for _, stmt := range caseCtx.AllStatement() {
+            v.Visit(stmt)
+        }
+        c.Branch(labelEnd)
+    }
+
+    // 5. Default case (si existe)
+    if ctx.DefaultCase() != nil {
+        c.Label(labelDefault)
+        for _, stmt := range ctx.DefaultCase().AllStatement() {
+            v.Visit(stmt)
+        }
+    }
+
+    // 6. Fin del switch
+    c.Label(labelEnd)
+    return nil
+}
