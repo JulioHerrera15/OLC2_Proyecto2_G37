@@ -42,12 +42,21 @@ type StackObject struct {
 	Size     int
 }
 
+func GetStackDebug() []StackObject {
+    return stack
+}
+
 var instructions = []string{}
 var stack = []StackObject{}
 var depth = 0
 
 func TopObject() StackObject {
-	return stack[len(stack)-1]
+    if len(stack) == 0 {
+        log.Printf("⚠️  ADVERTENCIA: Intento de acceder a TopObject() con pila vacía")
+        // Retornar un objeto entero por defecto
+        return StackObject{Type: Int, Length: 8, Depth: 0, Id: nil}
+    }
+    return stack[len(stack)-1]
 }
 
 func PushObject(obj StackObject) {
@@ -61,11 +70,11 @@ func PushConstant(value interface{}, objType StackObject) {
 		Mov(X0, value.(int))
 		Push(X0)
 	case Float:
-		var floatBits int64 = int64(math.Float64bits(value.(float64)))
-		var floatParts = [4]int16{}
+		var floatBits uint64 = math.Float64bits(value.(float64))
+		var floatParts = [4]uint16{}
 
 		for i := 0; i < 4; i++ {
-			floatParts[i] = int16((floatBits >> (i * 16)) & 0xFFFF)
+			floatParts[i] = uint16((floatBits >> (i * 16)) & 0xFFFF)
 		}
 		instructions = append(instructions, fmt.Sprintf("movz x0, #%d, lsl #0", floatParts[0]))
 		for i := 1; i < 4; i++ {
@@ -73,7 +82,6 @@ func PushConstant(value interface{}, objType StackObject) {
 		}
 		instructions = append(instructions, "fmov d0, x0")
 		Push(D0)
-
 	case String:
 		var stringArray []byte = StringTo1ByteArray(value.(string))
 		MovReg("x11", HP) // Guarda el inicio del string en x11
@@ -126,10 +134,29 @@ func PushStringNoStack(value string) {
 }
 
 func PopObject(rd string) StackObject {
-	var obj = stack[len(stack)-1]
-	stack = stack[:len(stack)-1]
-	Pop(rd)
-	return obj
+    if len(stack) == 0 {
+        log.Printf("⚠️  ADVERTENCIA: Intento de PopObject() con pila vacía")
+        return StackObject{Type: Int, Length: 8, Depth: 0, Id: nil}
+    }
+    
+    obj := stack[len(stack)-1]
+    stack = stack[:len(stack)-1]
+    
+    // Solo hacer Pop si rd no está vacío
+    if rd != "" {
+        if obj.Type == StackObjectType(Float) {
+            PopFloat(rd)
+        } else {
+            Pop(rd)
+        }
+    }
+    
+    return obj
+}
+
+// Agregar función PopFloat si no existe:
+func PopFloat(rd string) {
+    instructions = append(instructions, fmt.Sprintf("ldr %s, [sp], #8", rd))
 }
 
 func IntObject() StackObject {
@@ -182,19 +209,19 @@ func NewScope() {
 }
 
 func EndScope() int {
-	var byteOffset = 0
+    var byteOffset = 0
 
-	for i := len(stack) - 1; i >= 0; i-- {
-		if stack[i].Depth == depth {
-			byteOffset += stack[i].Length
-			stack = stack[:len(stack)-1]
-		} else {
-			break
-		}
-	}
+    for i := len(stack) - 1; i >= 0; i-- {
+        if stack[i].Depth == depth {
+            byteOffset += stack[i].Length
+            stack = stack[:len(stack)-1]
+        } else {
+            break
+        }
+    }
 
-	depth--
-	return byteOffset
+    depth--
+    return byteOffset
 }
 
 func TagObject(id string) {
@@ -205,15 +232,14 @@ func TagObject(id string) {
 }
 
 func GetObject(id string) (int, StackObject) {
-	var byteOffset = 0
-	for i := len(stack) - 1; i >= 0; i-- {
-		if stack[i].Id != nil && *stack[i].Id == id {
-			return byteOffset, stack[i]
-		}
-
-		byteOffset += stack[i].Length
-	}
-	return -1, StackObject{}
+    var byteOffset = 0
+    for i := len(stack) - 1; i >= 0; i-- {
+        if stack[i].Id != nil && *stack[i].Id == id {
+            return byteOffset, stack[i]
+        }
+        byteOffset += stack[i].Length
+    }
+    return -1, StackObject{}
 }
 
 func Add(rd string, rs1 string, rs2 string) {
@@ -357,13 +383,14 @@ func PrintFloat() {
 }
 
 func PrintString(rs string) {
-	if rs != X0 {
-		MovReg(X0, rs)
-	}
+    if rs != X0 {
+        MovReg(X0, rs)
+    }
 
-	instructions = append(instructions, "bl print_string")
+    usedSymbols["newline"] = true
 
-	Use("print_string")
+    instructions = append(instructions, "bl print_string")
+    Use("print_string")
 }
 
 func PrintChar(char rune) {
@@ -408,59 +435,97 @@ func Label(label string) {
 	instructions = append(instructions, fmt.Sprintf("%s:", label))
 }
 
+// Function management
+func Ret() {
+    instructions = append(instructions, "ret")
+}
+
+var functionDepth = 0
+
+func StartFunction(name string) {
+    Label(name)
+    Comment(fmt.Sprintf("Inicio de función %s", name))
+    // Setup frame pointer
+    instructions = append(instructions, "stp x29, x30, [sp, #-16]!")
+    instructions = append(instructions, "mov x29, sp")
+    
+    // NO incrementar depth aquí - los parámetros deben tener depth 0
+    // depth se incrementa en NewScope() cuando sea necesario
+}
+
+func EndFunction(name string) {
+    Comment(fmt.Sprintf("Fin de función %s", name))
+    // Restore frame pointer
+    instructions = append(instructions, "ldp x29, x30, [sp], #16")
+    Ret()
+    
+    // Salir del contexto de función
+    functionDepth--
+}
+
+func StartMain() {
+    // Llamar a main desde _start
+    instructions = append(instructions, "bl main")
+    EndProgram()
+}
+
 func ToString() string {
-	var sb strings.Builder
-	sb.WriteString(".data\n")
-	sb.WriteString("heap: .space 4096\n")
+    var sb strings.Builder
+    sb.WriteString(".data\n")
+    sb.WriteString("heap: .space 4096\n")
 
-	// Agrega los símbolos usados aquí
-	if usedSymbols["minus_sign"] {
-		sb.WriteString("minus_sign: .ascii \"-\"\n")
-	}
-	if usedSymbols["newline"] {
-		sb.WriteString("newline: .ascii \"\\n\"\n")
-	}
-	if usedSymbols["dot_char"] {
-		sb.WriteString("dot_char: .ascii \".\"\n")
-	}
-	if usedSymbols["zero_char"] {
-		sb.WriteString("zero_char: .ascii \"0\"\n")
-	}
-	if usedSymbols["double_newline"] {
-		sb.WriteString("double_newline: .ascii \"\\n\"\n")
-	}
-	if usedSymbols["atoi_error_msg"] {
-		sb.WriteString("atoi_error_msg: .ascii \"Error: entrada inválida en Atoi\\n\"\n")
-	}
+    // Agrega los símbolos usados aquí
+    if usedSymbols["minus_sign"] {
+        sb.WriteString("minus_sign: .ascii \"-\"\n")
+    }
+    if usedSymbols["newline"] {
+        sb.WriteString("newline: .ascii \"\\n\"\n")
+    }
+    if usedSymbols["dot_char"] {
+        sb.WriteString("dot_char: .ascii \".\"\n")
+    }
+    if usedSymbols["zero_char"] {
+        sb.WriteString("zero_char: .ascii \"0\"\n")
+    }
+    if usedSymbols["double_newline"] {
+        sb.WriteString("double_newline: .ascii \"\\n\"\n")
+    }
+    if usedSymbols["atoi_error_msg"] {
+        sb.WriteString("atoi_error_msg: .ascii \"Error: entrada inválida en Atoi\\n\"\n")
+    }
 
-	// Agregar los caracteres individuales usados por PrintChar
-	for symbol := range usedSymbols {
-		if strings.HasPrefix(symbol, "char_") {
-			charCode := strings.TrimPrefix(symbol, "char_")
-			sb.WriteString(fmt.Sprintf("%s: .byte %s\n", symbol, charCode))
-		}
-	}
+    // Agregar los caracteres individuales usados por PrintChar
+    for symbol := range usedSymbols {
+        if strings.HasPrefix(symbol, "char_") {
+            charCode := strings.TrimPrefix(symbol, "char_")
+            sb.WriteString(fmt.Sprintf("%s: .byte %s\n", symbol, charCode))
+        }
+    }
 
-	sb.WriteString(".text\n")
-	sb.WriteString(".global _start\n")
-	sb.WriteString("_start:\n")
-	sb.WriteString("    adr x10, heap\n")
+    sb.WriteString(".text\n")
+    sb.WriteString(".global _start\n")
+    
+    // PRIMERO: El punto de entrada _start
+    sb.WriteString("_start:\n")
+    sb.WriteString("    adr x10, heap\n")
+    sb.WriteString("    bl main\n")
+    sb.WriteString("    mov x0, #0\n")
+    sb.WriteString("    mov x8, #93\n")
+    sb.WriteString("    svc #0\n\n")
+    
+    // DESPUÉS: Las instrucciones (funciones definidas por el usuario)
+    for _, instr := range instructions {
+        sb.WriteString(fmt.Sprintf("    %s\n", instr))
+    }
 
-	for _, instr := range instructions {
-		sb.WriteString(fmt.Sprintf("    %s\n", instr))
-	}
+    // FINALMENTE: Las funciones de la biblioteca estándar
+    standardFunctions := GetFunctionDefinitions()
+    if standardFunctions != "" {
+        sb.WriteString("\n// Standard Library Functions\n")
+        sb.WriteString(standardFunctions)
+    }
 
-	sb.WriteString("    mov x0, #0\n")
-	sb.WriteString("    mov x8, #93\n")
-	sb.WriteString("    svc #0\n")
-
-	standardFunctions := GetFunctionDefinitions()
-	if standardFunctions != "" {
-		sb.WriteString("\n// Standard Library Functions\n")
-		sb.WriteString(standardFunctions)
-	}
-
-	return sb.String()
+    return sb.String()
 }
 
 func PrintStringInline(rs string) {

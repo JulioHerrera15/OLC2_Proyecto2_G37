@@ -127,7 +127,7 @@ print_loop:
     
 print_done:
     mov     x0, #1
-    adr     x1, string_newline
+    adr     x1, newline         // Address of newline character
     mov     x2, #1
     mov     x8, #64
     svc     #0
@@ -136,9 +136,7 @@ print_done:
     ldp     x19, x20, [sp], #16
     ldp     x29, x30, [sp], #16
     ret
-
-string_newline:
-    .ascii "\n"`,
+`,
 
 	"print_string_inline": `
 print_string_inline:
@@ -526,6 +524,28 @@ exit_function_inline:
     ldp x23, x24, [sp], #16
     ldp x21, x22, [sp], #16
     ldp x19, x20, [sp], #16
+    ldp x29, x30, [sp], #16
+    ret
+`,
+ "strcmp": `
+strcmp:
+    // x2 = primer string, x3 = segundo string
+    stp x29, x30, [sp, #-16]!
+    mov x4, x2      // x4 = ptr1
+    mov x5, x3      // x5 = ptr2
+strcmp_loop:
+    ldrb w6, [x4], #1
+    ldrb w7, [x5], #1
+    cmp w6, w7
+    b.ne strcmp_diff
+    cbz w6, strcmp_eq
+    b strcmp_loop
+strcmp_diff:
+    sub w0, w6, w7 // resultado negativo, cero o positivo
+    b strcmp_end
+strcmp_eq:
+    mov w0, #0
+strcmp_end:
     ldp x29, x30, [sp], #16
     ret
 `,

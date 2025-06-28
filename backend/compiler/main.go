@@ -83,7 +83,7 @@ func compile(code string) (string, error) {
     // Recorrer el árbol
 	compilerVisitor.Visit(tree)
 
-	c.EndProgram()
+	//c.EndProgram()
 
     // Generar código ensamblador
     assembly := c.ToString()
