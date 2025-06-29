@@ -592,36 +592,60 @@ func (v *Visitor) VisitBlockStatement(ctx *parser.BlockStatementContext) interfa
 // ---------------------------------------------ATOI------------------------------------------
 
 func (v *Visitor) VisitFunctionCall(ctx *parser.FunctionCallContext) interface{} {
-	return nil
+	   fnName := ctx.ID().GetText()
+	   args := []antlr.ParseTree{}
+	   if ctx.ArgumentList() != nil {
+			   exprs := ctx.ArgumentList().AllExpressionStatement()
+			   for _, e := range exprs {
+					   args = append(args, e.(antlr.ParseTree))
+			   }
+	   }
+
+	   switch fnName {
+	   case "len":
+			   if len(args) != 1 {
+					   log.Fatal("len() espera un solo argumento")
+			   }
+			   v.Visit(args[0])
+			   obj := c.PopObject(c.X0)
+			   if obj.IsSlice {
+					   c.PushConstant(obj.Size, c.IntObject())
+			   } else {
+					   log.Fatal("len() solo soporta slices")
+			   }
+			   return nil
+	   default:
+			   return nil
+	   }
 }
 
 func (v *Visitor) VisitAtoiExpr(ctx *parser.AtoiExprContext) interface{} {
-    // Obtenemos el nodo hijo que es el atoiStatement
-    atoiStmt := ctx.AtoiStatement()
-    if atoiStmt == nil {
-        log.Fatal("Error: AtoiExprContext sin atoiStatement")
-    }
+	// Obtenemos el nodo hijo que es el atoiStatement
+	atoiStmt := ctx.AtoiStatement()
+	if atoiStmt == nil {
+		log.Fatal("Error: AtoiExprContext sin atoiStatement")
+	}
 
-    // Visitamos el argumento dentro de atoi(...)
-    argExpr := atoiStmt.ExpressionStatement()
-    v.Visit(argExpr)
+	// Visitamos el argumento dentro de atoi(...)
+	argExpr := atoiStmt.ExpressionStatement()
+	v.Visit(argExpr)
 
-    // Sacamos el string de la pila virtual
-    arg := c.PopObject(c.X0)
-    if arg.Type != c.String {
-        log.Fatal("atoi solo acepta strings como argumento")
-    }
+	// Sacamos el string de la pila virtual
+	arg := c.PopObject(c.X0)
+	if arg.Type != c.String {
+		log.Fatal("atoi solo acepta strings como argumento")
+	}
 
-    c.UsedFunction("atoi")
-    c.Comment("Llamando a función atoi")
-    c.Call("atoi")
-    c.Comment("Valor en x0 tras atoi (debe ser entero válido)")
+	c.UsedFunction("atoi")
+	c.Comment("Llamando a función atoi")
+	c.Call("atoi")
+	c.Comment("Valor en x0 tras atoi (debe ser entero válido)")
 
-    // Empujamos el resultado tanto en la pila real como virtual
-    c.Push(c.X0)
-    c.PushObject(c.IntObject())
+	// Empujamos el resultado tanto en la pila real como virtual
+	c.Push(c.X0)
+	c.PushObject(c.IntObject())
 
-    return nil
+	return nil
 }
 
 //---------------------------------------------------------------------------------------
