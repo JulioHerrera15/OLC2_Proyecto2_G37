@@ -67,8 +67,8 @@ switchCase: 'case' expressionStatement ':' statement*;
 
 defaultCase: 'default' ':' statement*;
 
-forStatement: 'for' expressionStatement blockStatement                                                                              # ForConditional
-            | 'for' (variableDeclaration | expressionStatement) ';' expressionStatement ';' expressionStatement blockStatement      # ForSimple
+forStatement: 'for' (variableDeclaration | expressionStatement) ';' expressionStatement ';' expressionStatement blockStatement      # ForSimple
+            | 'for' expressionStatement blockStatement                                                                              # ForConditional
             | 'for' ID ',' ID '=' 'range' ID blockStatement                                                                         # ForSlice
 ;
 

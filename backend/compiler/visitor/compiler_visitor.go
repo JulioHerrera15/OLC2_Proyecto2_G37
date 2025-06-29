@@ -51,7 +51,11 @@ func (v *Visitor) VisitStatement(ctx *parser.StatementContext) interface{} {
     for i := 0; i < ctx.GetChildCount(); i++ {
         child := ctx.GetChild(i)
         //fmt.Printf("🔍 DEBUG: Statement hijo %d: %T\n", i, child)
-        v.Visit(child.(antlr.ParseTree))
+        result := v.Visit(child.(antlr.ParseTree))
+		if result == "break" || result == "continue" {
+			// Si es un break o continue, retornar inmediatamente
+			return result
+		}
     }
     return nil
 }
@@ -237,27 +241,35 @@ func (v *Visitor) VisitMulDivMod(ctx *parser.MulDivModContext) interface{} {
 }
 
 func (v *Visitor) VisitIncrementDecrement(ctx *parser.IncrementDecrementContext) interface{} {
-	var op = ctx.GetChild(1).(*antlr.TerminalNodeImpl).GetText()
+    var op = ctx.GetChild(1).(*antlr.TerminalNodeImpl).GetText()
 
-	v.Visit(ctx.GetChild(0).(antlr.ParseTree)) // Visit the variable
+    // Obtener el nombre de la variable
+    varName := ctx.GetChild(0).(*antlr.TerminalNodeImpl).GetText()
+    
+    // Obtener el valor actual de la variable
+    v.Visit(ctx.GetChild(0).(antlr.ParseTree)) 
+    var left = c.PopObject(c.X0) 
 
-	// TODO: Reemplazar por PopObject y agregar manejo de tipos
+    switch op {
+    case "++":
+        c.Comment("Increment operator")
+        c.Addi(c.X0, c.X0, 1) 
+    case "--":
+        c.Comment("Decrement operator")
+        c.Subi(c.X0, c.X0, 1) 
+    }
 
-	var left = c.PopObject(c.X0) // Pop the variable value
+    // Actualizar la variable en memoria
+    offset, _ := c.GetObject(varName)
+    c.Mov(c.X1, offset)
+    c.Add(c.X1, c.SP, c.X1)
+    c.Str(c.X0, c.X1, 0)
 
-	switch op {
-	case "++":
-		c.Comment("Increment operator")
-		c.Addi(c.X0, c.X0, 1) // Increment
-	case "--":
-		c.Comment("Decrement operator")
-		c.Subi(c.X0, c.X0, 1) // Decrement
-	}
+    // Push el resultado para expresiones
+    c.Push(c.X0)                      
+    c.PushObject(c.CloneObject(left)) 
 
-	c.Push(c.X0)                      // Push the updated value back
-	c.PushObject(c.CloneObject(left)) // Push the original object to the stack
-
-	return nil
+    return nil
 }
 
 func (v *Visitor) VisitAddSubOperator(ctx *parser.AddSubOperatorContext) interface{} {
@@ -531,18 +543,27 @@ func (v *Visitor) VisitExplicitDeclaration(ctx *parser.ExplicitDeclarationContex
 }
 func (v *Visitor) VisitImplicitDeclaration(ctx *parser.ImplicitDeclarationContext) interface{} {
     var varName string = ctx.ID().GetText()
+    log.Printf("🔍 DEBUG: ImplicitDeclaration para variable: %s", varName)
 
     // Evalúa la expresión y deja el resultado en la pila real y virtual
     v.Visit(ctx.ExpressionStatement())
+    log.Printf("🔍 DEBUG: Expresión evaluada para %s", varName)
 
     // Forzar tipo int si la expresión es un entero literal
     obj := c.TopObject()
-    if _, ok := ctx.ExpressionStatement().(*parser.IntegerContext); ok {
+    log.Printf("🔍 DEBUG: TopObject tipo: %v", obj.Type)
+    
+    if _, ok := ctx.ExpressionStatement().GetChild(0).(antlr.ParseTree).(*parser.IntegerContext); ok {
         obj.Type = c.Int
+        // CORREGIR: Actualizar el objeto en la pila
+        c.PopObject("")  // Pop sin mover a registro
+        c.PushObject(obj)
+        log.Printf("🔍 DEBUG: Tipo forzado a Int para %s", varName)
     }
 
-    // NO vuelvas a pushear aquí, solo etiqueta el objeto
+    // Solo etiqueta el objeto
     c.TagObject(varName)
+    log.Printf("🔍 DEBUG: Variable %s etiquetada correctamente", varName)
 
     return nil
 }
@@ -711,28 +732,43 @@ func (v *Visitor) VisitChildren(node antlr.RuleNode) interface{} {
 var inFunctionArgs bool = false
 
 func (v *Visitor) VisitFunctionCall(ctx *parser.FunctionCallContext) interface{} {
-    funcName := ctx.ID().GetText()
-
+    fnName := ctx.ID().GetText()
+    args := []antlr.ParseTree{}
     if ctx.ArgumentList() != nil {
-        argsList := ctx.ArgumentList()
-        args := argsList.AllExpressionStatement()
-        
+        exprs := ctx.ArgumentList().AllExpressionStatement()
+        for _, e := range exprs {
+            args = append(args, e.(antlr.ParseTree))
+        }
+    }
+
+    switch fnName {
+    case "len":
+        if len(args) != 1 {
+            log.Fatal("len() espera un solo argumento")
+        }
+        v.Visit(args[0])
+        obj := c.PopObject(c.X0)
+        if obj.IsSlice {
+            c.PushConstant(obj.Size, c.IntObject())
+        } else {
+            log.Fatal("len() solo soporta slices")
+        }
+        return nil
+    default:
         // EVALUAR todos los argumentos PRIMERO (van a la pila)
         for _, expr := range args {
             v.Visit(expr)
         }
-        
         // DESPUÉS moverlos a registros en ORDEN INVERSO
         for i := len(args) - 1; i >= 0 && i < 4; i-- {
             reg := fmt.Sprintf("x%d", i)
             c.PopObject(reg) // Pop en orden inverso
         }
+        c.Call(fnName)
+        c.Push(c.X0)         // El resultado está en x0
+        c.PushObject(c.IntObject())
+        return nil
     }
-
-    c.Call(funcName)
-    c.Push(c.X0)         // El resultado está en x0
-    c.PushObject(c.IntObject())
-    return nil
 }
 
 var inReturn bool = false
@@ -1019,6 +1055,7 @@ func (v *Visitor) VisitIfStatement(ctx *parser.IfStatementContext) interface{} {
 
 	if result == "break" || result == "continue" {
 		// Si el bloque if devolvió "break" o "continue", salimos
+		log.Print("Se encontró un break o continue en el bloque if")
 		c.Branch(labelEnd) 
 		c.Label(labelEnd)
 		return result
@@ -1151,6 +1188,7 @@ func (v *Visitor) VisitForConditional(ctx *parser.ForConditionalContext) interfa
 	// 2. Bloque del while (hijo 2)
 	result := v.Visit(ctx.BlockStatement())
     if result == "break" {
+		log.Print("Se encontró un break en el bloque while")
         c.Branch(labelEnd) // Break sale del while
     } else if result == "continue" {
         c.Branch(labelStart) // Continue vuelve al inicio del while
@@ -1171,57 +1209,60 @@ func (v *Visitor) VisitForSimple(ctx *parser.ForSimpleContext) interface{} {
     labelUpdate := fmt.Sprintf("for_update_%p", ctx)
     labelEnd := fmt.Sprintf("for_end_%p", ctx)
     
-    // Crear nuevo scope para las variables del forCONTINUE_SIGNAL
+    // Crear nuevo scope para las variables del for
     c.NewScope()
     
-    // 1. Inicialización (variableDeclaration | expressionStatement)
+    // 1. Inicialización
     c.Comment("For initialization")
     if ctx.VariableDeclaration() != nil {
         v.Visit(ctx.VariableDeclaration())
     } else if len(ctx.AllExpressionStatement()) >= 1 {
         v.Visit(ctx.AllExpressionStatement()[0])
-        // Pop el resultado de la inicialización si no es declaración
-        c.PopObject(c.X0)
     }
     
     // 2. Label del inicio del loop
     c.Label(labelStart)
     
-    // 3. Condición (segundo expressionStatement)
+    // 3. Condición (PRIMER expressionStatement) ⚡ CORREGIR AQUÍ
     c.Comment("For condition")
-    if len(ctx.AllExpressionStatement()) >= 2 {
-        v.Visit(ctx.AllExpressionStatement()[1])
+    if len(ctx.AllExpressionStatement()) >= 1 {
+        v.Visit(ctx.AllExpressionStatement()[0])  // ⚡ CAMBIAR [1] por [0]
         c.PopObject(c.X0)
         c.CmpImm(c.X0, 0)
-        c.BranchEq(labelEnd) // Si la condición es falsa, salir del loop
+        c.BranchEq(labelEnd)
     }
     
     // 4. Cuerpo del for
     c.Comment("For body")
     result := v.Visit(ctx.BlockStatement())
     if result == "break" {
-        c.Branch(labelEnd) // Break sale del for
+        c.Branch(labelEnd)
     } else if result == "continue" {
-        c.Branch(labelUpdate) // Continue va a la actualización
+        c.Branch(labelUpdate)
+    } else {
+        c.Branch(labelUpdate)
     }
     
-    // 5. Label y expresión de actualización
+    // 5. Actualización
     c.Label(labelUpdate)
     c.Comment("For update")
-    if len(ctx.AllExpressionStatement()) >= 3 {
-        v.Visit(ctx.AllExpressionStatement()[2])
-        // Pop el resultado de la actualización
+    if len(ctx.AllExpressionStatement()) >= 2 {
+        v.Visit(ctx.AllExpressionStatement()[1])
         c.PopObject(c.X0)
     }
     
-    // 6. Saltar de vuelta al inicio
+    // 6. Volver al inicio
     c.Branch(labelStart)
     
-    // 7. Label de salida
+    // 7. Salida
     c.Label(labelEnd)
     
-    // Terminar scope del for
-    c.EndScope()
+    // Limpiar scope
+    var bytesToRemove int = c.EndScope()
+    if bytesToRemove > 0 {
+        c.Mov(c.X0, bytesToRemove)
+        c.Add(c.SP, c.SP, c.X0)
+    }
     
     return nil
 }

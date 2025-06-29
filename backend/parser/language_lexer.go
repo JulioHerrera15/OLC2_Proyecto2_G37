@@ -1,6 +1,6 @@
-// Code generated from Language.g4 by ANTLR 4.13.2. DO NOT EDIT.
+// Code generated from parser/Language.g4 by ANTLR 4.13.2. DO NOT EDIT.
 
-package parser
+package interpreter
 
 import (
 	"fmt"

@@ -1,6 +1,6 @@
 // Code generated from parser/Language.g4 by ANTLR 4.13.2. DO NOT EDIT.
 
-package parser // Language
+package interpreter // Language
 import "github.com/antlr4-go/antlr/v4"
 
 // BaseLanguageListener is a complete listener for a parse tree produced by LanguageParser.
@@ -242,17 +242,17 @@ func (s *BaseLanguageListener) EnterDefaultCase(ctx *DefaultCaseContext) {}
 // ExitDefaultCase is called when production defaultCase is exited.
 func (s *BaseLanguageListener) ExitDefaultCase(ctx *DefaultCaseContext) {}
 
-// EnterForConditional is called when production ForConditional is entered.
-func (s *BaseLanguageListener) EnterForConditional(ctx *ForConditionalContext) {}
-
-// ExitForConditional is called when production ForConditional is exited.
-func (s *BaseLanguageListener) ExitForConditional(ctx *ForConditionalContext) {}
-
 // EnterForSimple is called when production ForSimple is entered.
 func (s *BaseLanguageListener) EnterForSimple(ctx *ForSimpleContext) {}
 
 // ExitForSimple is called when production ForSimple is exited.
 func (s *BaseLanguageListener) ExitForSimple(ctx *ForSimpleContext) {}
+
+// EnterForConditional is called when production ForConditional is entered.
+func (s *BaseLanguageListener) EnterForConditional(ctx *ForConditionalContext) {}
+
+// ExitForConditional is called when production ForConditional is exited.
+func (s *BaseLanguageListener) ExitForConditional(ctx *ForConditionalContext) {}
 
 // EnterForSlice is called when production ForSlice is entered.
 func (s *BaseLanguageListener) EnterForSlice(ctx *ForSliceContext) {}

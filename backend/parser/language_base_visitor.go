@@ -1,6 +1,6 @@
-// Code generated from Language.g4 by ANTLR 4.13.2. DO NOT EDIT.
+// Code generated from parser/Language.g4 by ANTLR 4.13.2. DO NOT EDIT.
 
-package parser // Language
+package interpreter // Language
 import "github.com/antlr4-go/antlr/v4"
 
 type BaseLanguageVisitor struct {
@@ -155,11 +155,11 @@ func (v *BaseLanguageVisitor) VisitDefaultCase(ctx *DefaultCaseContext) interfac
 	return v.VisitChildren(ctx)
 }
 
-func (v *BaseLanguageVisitor) VisitForConditional(ctx *ForConditionalContext) interface{} {
+func (v *BaseLanguageVisitor) VisitForSimple(ctx *ForSimpleContext) interface{} {
 	return v.VisitChildren(ctx)
 }
 
-func (v *BaseLanguageVisitor) VisitForSimple(ctx *ForSimpleContext) interface{} {
+func (v *BaseLanguageVisitor) VisitForConditional(ctx *ForConditionalContext) interface{} {
 	return v.VisitChildren(ctx)
 }
 

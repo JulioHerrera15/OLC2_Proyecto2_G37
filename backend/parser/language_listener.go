@@ -1,6 +1,6 @@
 // Code generated from parser/Language.g4 by ANTLR 4.13.2. DO NOT EDIT.
 
-package parser // Language
+package interpreter // Language
 import "github.com/antlr4-go/antlr/v4"
 
 // LanguageListener is a complete listener for a parse tree produced by LanguageParser.
@@ -118,11 +118,11 @@ type LanguageListener interface {
 	// EnterDefaultCase is called when entering the defaultCase production.
 	EnterDefaultCase(c *DefaultCaseContext)
 
-	// EnterForConditional is called when entering the ForConditional production.
-	EnterForConditional(c *ForConditionalContext)
-
 	// EnterForSimple is called when entering the ForSimple production.
 	EnterForSimple(c *ForSimpleContext)
+
+	// EnterForConditional is called when entering the ForConditional production.
+	EnterForConditional(c *ForConditionalContext)
 
 	// EnterForSlice is called when entering the ForSlice production.
 	EnterForSlice(c *ForSliceContext)
@@ -313,11 +313,11 @@ type LanguageListener interface {
 	// ExitDefaultCase is called when exiting the defaultCase production.
 	ExitDefaultCase(c *DefaultCaseContext)
 
-	// ExitForConditional is called when exiting the ForConditional production.
-	ExitForConditional(c *ForConditionalContext)
-
 	// ExitForSimple is called when exiting the ForSimple production.
 	ExitForSimple(c *ForSimpleContext)
+
+	// ExitForConditional is called when exiting the ForConditional production.
+	ExitForConditional(c *ForConditionalContext)
 
 	// ExitForSlice is called when exiting the ForSlice production.
 	ExitForSlice(c *ForSliceContext)
