@@ -82,12 +82,11 @@ func (v *Visitor) VisitInteger(ctx *parser.IntegerContext) interface{} {
     c.Comment("Constant: " + value)
     var IntObject = c.IntObject()
     if !inFunctionArgs {
-        c.PushConstant(intValue, IntObject)
+        c.PushConstant(intValue, IntObject) // Esto ya hace PushObject
     } else {
         c.Mov(c.X0, intValue)
+        c.PushObject(IntObject) // Solo aquí
     }
-    // SIEMPRE pushea a la pila virtual
-    c.PushObject(IntObject)
     return nil
 }
 
@@ -103,9 +102,8 @@ func (v *Visitor) VisitFloat(ctx *parser.FloatContext) interface{} {
         c.PushConstant(floatValue, floatObject)
     } else {
         c.FMov(c.D0, fmt.Sprintf("%f", floatValue))
+        c.PushObject(floatObject)
     }
-    // SIEMPRE pushea a la pila virtual
-    c.PushObject(floatObject)
     return nil
 }
 
@@ -118,29 +116,27 @@ func (v *Visitor) VisitString(ctx *parser.StringContext) interface{} {
     } else {
         c.PushStringNoStack(value)
         c.MovReg(c.X0, "x11")
+        c.PushObject(StringObject)
     }
-    // SIEMPRE pushea a la pila virtual
-    c.PushObject(StringObject)
     return nil
 }
 
 func (v *Visitor) VisitBoolean(ctx *parser.BooleanContext) interface{} {
     var value = ctx.GetText()
-    var boolValue int
+    var boolValue bool
     if value == "true" {
-        boolValue = 1
+        boolValue = true
     } else {
-        boolValue = 0
+        boolValue = false
     }
     c.Comment("Constant Boolean: " + value)
     var BoolObject = c.BoolObject()
     if !inFunctionArgs {
         c.PushConstant(boolValue, BoolObject)
     } else {
-        c.Mov(c.X0, boolValue)
+        c.Mov(c.X0, map[bool]int{true: 1, false: 0}[boolValue])
+        c.PushObject(BoolObject)
     }
-    // SIEMPRE pushea a la pila virtual
-    c.PushObject(BoolObject)
     return nil
 }
 
@@ -426,33 +422,33 @@ func (v *Visitor) VisitOr(ctx *parser.OrContext) interface{} {
 }
 
 func (v *Visitor) VisitGreaterLess(ctx *parser.GreaterLessContext) interface{} {
-	var op = ctx.GetChild(1).(*antlr.TerminalNodeImpl).GetText()
+    var op = ctx.GetChild(1).(*antlr.TerminalNodeImpl).GetText()
 
-	v.Visit(ctx.GetChild(0).(antlr.ParseTree))
-	v.Visit(ctx.GetChild(2).(antlr.ParseTree))
+    v.Visit(ctx.GetChild(0).(antlr.ParseTree))
+    v.Visit(ctx.GetChild(2).(antlr.ParseTree))
 
-	c.PopObject(c.X1)            // Pop second operand
-	var left = c.PopObject(c.X0) // Pop first operand
+    c.PopObject(c.X1)            // Pop second operand
+    c.PopObject(c.X0)            // Pop first operand
 
-	c.Comment("Comparison operation: " + op)
-	switch op {
-	case ">":
-		c.Cmp(c.X0, c.X1)
-		c.Cset(c.X0, "gt")
-	case "<":
-		c.Cmp(c.X0, c.X1)
-		c.Cset(c.X0, "lt")
-	case ">=":
-		c.Cmp(c.X0, c.X1)
-		c.Cset(c.X0, "ge")
-	case "<=":
-		c.Cmp(c.X0, c.X1)
-		c.Cset(c.X0, "le")
-	}
+    c.Comment("Comparison operation: " + op)
+    switch op {
+    case ">":
+        c.Cmp(c.X0, c.X1)
+        c.Cset(c.X0, "gt")
+    case "<":
+        c.Cmp(c.X0, c.X1)
+        c.Cset(c.X0, "lt")
+    case ">=":
+        c.Cmp(c.X0, c.X1)
+        c.Cset(c.X0, "ge")
+    case "<=":
+        c.Cmp(c.X0, c.X1)
+        c.Cset(c.X0, "le")
+    }
 
-	c.Push(c.X0)
-	c.PushObject(c.CloneObject(left))
-	return nil
+    c.Push(c.X0)
+    c.PushObject(c.BoolObject()) // <-- SIEMPRE push de booleano
+    return nil
 }
 
 func (v *Visitor) VisitEqual(ctx *parser.EqualContext) interface{} {
@@ -491,7 +487,7 @@ func (v *Visitor) VisitEqual(ctx *parser.EqualContext) interface{} {
     }
 
     c.Push(c.X0)
-    c.PushObject(c.CloneObject(left))
+    c.PushObject(c.BoolObject()) // <-- SIEMPRE push de booleano
     return nil
 }
 
@@ -517,20 +513,22 @@ func (v *Visitor) VisitNegate(ctx *parser.NegateContext) interface{} {
 }
 
 func (v *Visitor) VisitExplicitDeclaration(ctx *parser.ExplicitDeclarationContext) interface{} {
-	var varName string = ctx.ID().(*antlr.TerminalNodeImpl).GetText()
+    var varName string = ctx.ID().(*antlr.TerminalNodeImpl).GetText()
 
-	if ctx.ExpressionStatement() != nil {
-		v.Visit(ctx.ExpressionStatement())
-		c.TagObject(varName)
-	} else {
-		c.Mov(c.X0, 0)
-		c.Push(c.X0)
-		c.PushObject(c.CloneObject(c.IntObject()))
-	}
+    if ctx.ExpressionStatement() != nil {
+        v.Visit(ctx.ExpressionStatement())
+        // Solo etiqueta, no hagas push extra
+        c.TagObject(varName)
+    } else {
+        // Declaración sin inicialización: sí pushea un 0
+        c.Mov(c.X0, 0)
+        c.Push(c.X0)
+        c.PushObject(c.CloneObject(c.IntObject()))
+        c.TagObject(varName)
+    }
 
-	return nil
+    return nil
 }
-
 func (v *Visitor) VisitImplicitDeclaration(ctx *parser.ImplicitDeclarationContext) interface{} {
     var varName string = ctx.ID().GetText()
 
@@ -541,11 +539,9 @@ func (v *Visitor) VisitImplicitDeclaration(ctx *parser.ImplicitDeclarationContex
     obj := c.TopObject()
     if _, ok := ctx.ExpressionStatement().(*parser.IntegerContext); ok {
         obj.Type = c.Int
-        //c.PopObject(c.X0)
-        c.PushObject(obj)
     }
 
-    // Etiqueta el objeto en la pila virtual con el nombre de la variable
+    // NO vuelvas a pushear aquí, solo etiqueta el objeto
     c.TagObject(varName)
 
     return nil
