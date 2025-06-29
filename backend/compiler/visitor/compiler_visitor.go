@@ -642,7 +642,10 @@ func (v *Visitor) VisitBlockStatement(ctx *parser.BlockStatementContext) interfa
     // c.NewScope() - comentar esta línea
 
     for _, statement := range ctx.AllStatement() {
-        v.Visit(statement.(antlr.ParseTree))
+        result := v.Visit(statement.(antlr.ParseTree))
+		if result == "break" || result == "continue" {
+			return result
+		}
     }
 
     // Comentar también el EndScope
@@ -652,6 +655,7 @@ func (v *Visitor) VisitBlockStatement(ctx *parser.BlockStatementContext) interfa
         c.Add(c.SP, c.SP, c.X0)    // Adjust the stack pointer
         c.Comment("Stack pointer adjusted")
     } */
+	
 
     return nil
 }
@@ -1015,7 +1019,14 @@ func (v *Visitor) VisitIfStatement(ctx *parser.IfStatementContext) interface{} {
 	c.BranchEq(labelElse)
 
 	// 2. Bloque del if (hijo 2)
-	v.Visit(ctx.BlockStatement(0))
+	result := v.Visit(ctx.BlockStatement(0))
+
+	if result == "break" || result == "continue" {
+		// Si el bloque if devolvió "break" o "continue", salimos
+		c.Branch(labelEnd) 
+		c.Label(labelEnd)
+		return result
+	}
 
 	c.Branch(labelEnd)
 
@@ -1026,9 +1037,21 @@ func (v *Visitor) VisitIfStatement(ctx *parser.IfStatementContext) interface{} {
 		// El hijo 3 es 'else', el hijo 4 es ifStatement o blockStatement
 		elseNode := ctx.GetChild(4)
 		if elseIfCtx, ok := elseNode.(*parser.IfStatementContext); ok {
-			v.Visit(elseIfCtx)
+			result := v.Visit(elseIfCtx)
+			if result == "break" || result == "continue" {
+				// Si el bloque else-if devolvió "break" o "continue", salimos
+				c.Branch(labelEnd)
+				c.Label(labelEnd)
+				return result
+			}
 		} else if blockCtx, ok := elseNode.(*parser.BlockStatementContext); ok {
-			v.Visit(blockCtx)
+			result := v.Visit(blockCtx)
+			if result == "break" || result == "continue" {
+				// Si el bloque else devolvió "break" o "continue", salimos
+				c.Branch(labelEnd)
+				c.Label(labelEnd)
+				return result
+			}
 		}
 	}
 	c.Label(labelEnd)
@@ -1074,7 +1097,19 @@ func (v *Visitor) VisitSwitchStatement(ctx *parser.SwitchStatementContext) inter
 	for i, caseCtx := range ctx.AllSwitchCase() {
 		c.Label(caseLabels[i])
 		for _, stmt := range caseCtx.AllStatement() {
-			v.Visit(stmt)
+			result := v.Visit(stmt)
+			if result == "break"{
+				// Si el bloque case devolvió "break", salimos salimos del switch
+				c.Branch(labelEnd)
+				c.Label(labelEnd)
+				return nil
+			} else if result == "continue" {
+				// Si el bloque case devolvió "continue" salimos del switch
+				c.Branch(labelEnd)
+				c.Label(labelEnd)
+				return result
+			}
+
 		}
 		c.Branch(labelEnd)
 	}
@@ -1083,11 +1118,126 @@ func (v *Visitor) VisitSwitchStatement(ctx *parser.SwitchStatementContext) inter
 	if ctx.DefaultCase() != nil {
 		c.Label(labelDefault)
 		for _, stmt := range ctx.DefaultCase().AllStatement() {
-			v.Visit(stmt)
+			result := v.Visit(stmt)
+			if result == "break" {
+				// Si el bloque default devolvió "break", salimos del switch
+				c.Branch(labelEnd)
+				c.Label(labelEnd)
+				return nil
+			}
+			if result == "continue" {
+				// Si el bloque default devolvió "continue", salimos del switch
+				c.Branch(labelEnd)
+				c.Label(labelEnd)
+				return result
+			}
 		}
 	}
 
 	// 6. Fin del switch
 	c.Label(labelEnd)
 	return nil
+}
+
+func (v *Visitor) VisitForConditional(ctx *parser.ForConditionalContext) interface{} {
+	c.Comment("While statement")
+	labelStart := fmt.Sprintf("while_start_%p", ctx)
+	labelEnd := fmt.Sprintf("while_end_%p", ctx)
+	c.Label(labelStart)
+
+	// 1. Evalúa la condición (hijo 1)
+	v.Visit(ctx.ExpressionStatement())
+
+	c.PopObject(c.X0) // Sacamos el resultado de la condición
+	c.CmpImm(c.X0, 0)
+	c.BranchEq(labelEnd) // Si la condición es falsa, salta al final
+
+	// 2. Bloque del while (hijo 2)
+	result := v.Visit(ctx.BlockStatement())
+    if result == "break" {
+        c.Branch(labelEnd) // Break sale del while
+    } else if result == "continue" {
+        c.Branch(labelStart) // Continue vuelve al inicio del while
+    } else {
+        c.Branch(labelStart) // Comportamiento normal, vuelve al inicio
+    }
+    
+    c.Label(labelEnd) // Marca el final del while
+
+    return nil
+}
+
+func (v *Visitor) VisitForSimple(ctx *parser.ForSimpleContext) interface{} {
+    c.Comment("For loop statement")
+    
+    // Crear labels únicos para este for
+    labelStart := fmt.Sprintf("for_start_%p", ctx)
+    labelUpdate := fmt.Sprintf("for_update_%p", ctx)
+    labelEnd := fmt.Sprintf("for_end_%p", ctx)
+    
+    // Crear nuevo scope para las variables del forCONTINUE_SIGNAL
+    c.NewScope()
+    
+    // 1. Inicialización (variableDeclaration | expressionStatement)
+    c.Comment("For initialization")
+    if ctx.VariableDeclaration() != nil {
+        v.Visit(ctx.VariableDeclaration())
+    } else if len(ctx.AllExpressionStatement()) >= 1 {
+        v.Visit(ctx.AllExpressionStatement()[0])
+        // Pop el resultado de la inicialización si no es declaración
+        c.PopObject(c.X0)
+    }
+    
+    // 2. Label del inicio del loop
+    c.Label(labelStart)
+    
+    // 3. Condición (segundo expressionStatement)
+    c.Comment("For condition")
+    if len(ctx.AllExpressionStatement()) >= 2 {
+        v.Visit(ctx.AllExpressionStatement()[1])
+        c.PopObject(c.X0)
+        c.CmpImm(c.X0, 0)
+        c.BranchEq(labelEnd) // Si la condición es falsa, salir del loop
+    }
+    
+    // 4. Cuerpo del for
+    c.Comment("For body")
+    result := v.Visit(ctx.BlockStatement())
+    if result == "break" {
+        c.Branch(labelEnd) // Break sale del for
+    } else if result == "continue" {
+        c.Branch(labelUpdate) // Continue va a la actualización
+    }
+    
+    // 5. Label y expresión de actualización
+    c.Label(labelUpdate)
+    c.Comment("For update")
+    if len(ctx.AllExpressionStatement()) >= 3 {
+        v.Visit(ctx.AllExpressionStatement()[2])
+        // Pop el resultado de la actualización
+        c.PopObject(c.X0)
+    }
+    
+    // 6. Saltar de vuelta al inicio
+    c.Branch(labelStart)
+    
+    // 7. Label de salida
+    c.Label(labelEnd)
+    
+    // Terminar scope del for
+    c.EndScope()
+    
+    return nil
+}
+
+func (v *Visitor) VisitBreakStatement(ctx *parser.BreakStatementContext) interface{} {
+	c.Comment("Break statement")
+
+	return "break"
+}
+
+func (v *Visitor) VisitContinueStatement(ctx *parser.ContinueStatementContext) interface{} {
+	c.Comment("Continue statement")
+
+	return "continue"
 }
